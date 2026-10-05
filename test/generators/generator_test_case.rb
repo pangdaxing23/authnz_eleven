@@ -57,12 +57,12 @@ module AuthnzEleven
 
     private
 
-    def seed_destination_from_dummy_app
+    def seed_destination_from_dummy_app(root = destination_root)
       SKELETON_ENTRIES.each do |entry|
         source = File.join(DUMMY_APP_ROOT, entry)
         next unless File.exist?(source)
 
-        FileUtils.cp_r(source, File.join(destination_root, entry))
+        FileUtils.cp_r(source, File.join(root, entry))
       end
     end
   end

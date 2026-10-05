@@ -37,7 +37,7 @@ module AuthnzEleven
 
     def render(flags)
       Dir.mktmpdir do |dir|
-        SKELETON_ENTRIES.each { |entry| FileUtils.cp_r(File.join(DUMMY_APP_ROOT, entry), dir) }
+        seed_destination_from_dummy_app(dir)
         skeleton = files_in(dir)
         run_generator(flags, destination_root: dir)
         files_in(dir).reject { |path, _| skeleton.key?(path) || path.start_with?("db/migrate/") }
