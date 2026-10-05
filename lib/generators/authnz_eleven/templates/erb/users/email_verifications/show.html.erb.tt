@@ -1,0 +1,9 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Confirm your email</h1>
+
+<p>Confirm <%%= @<%= identity.singular %>.pending_email %> as your new email address.</p>
+
+<%%# Confirm with a non-GET request so mail scanners cannot apply the change. %>
+<%%= button_to "Confirm my email", <%= identity.route_scope %>_verify_email_change_path(sid: params[:sid]), method: :patch %>

@@ -1,0 +1,1 @@
+When adding new features or fixing bugs, look to see how we might simplify things by combining or reframing if possible. Do not add comments. The code not being obvious and self-explanatory enough is a bad sign.

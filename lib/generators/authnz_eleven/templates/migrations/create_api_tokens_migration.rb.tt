@@ -1,0 +1,14 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.api_tokens_table %><%= primary_key_options %> do |t|
+      t.references :<%= identity.singular %>, null: false, foreign_key: true<%= reference_type_options %>
+      t.string :name, null: false
+      t.string :token_digest, null: false
+      t.datetime :expires_at, null: false
+
+      t.timestamps
+    end
+
+    add_index :<%= identity.api_tokens_table %>, :token_digest, unique: true
+  end
+end

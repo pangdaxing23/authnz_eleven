@@ -1,0 +1,22 @@
+<p style="color: red"><%%= alert %></p>
+
+<h1>Start a new team</h1>
+
+<%%= form_with model: @team, url: <%= identity.nested_helper("teams_path") %> do |form| %>
+  <%% if @team.errors.any? %>
+    <div style="color: red">
+      <%% @team.errors.full_messages.each do |message| %>
+        <div><%%= message %></div>
+      <%% end %>
+    </div>
+  <%% end %>
+
+  <div>
+    <%%= form.label :name %>
+    <%%= form.text_field :name, required: true, autofocus: true %>
+  </div>
+
+  <div><%%= form.submit "Create team" %></div>
+<%% end %>
+
+<%%= link_to "Back", <%= identity.nested_helper("teams_path") %> %>

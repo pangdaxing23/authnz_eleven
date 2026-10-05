@@ -1,0 +1,16 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.omniauth_identities_table %><%= primary_key_options %> do |t|
+      t.references :<%= identity.singular %>, null: false, foreign_key: true<%= reference_type_options %>
+      t.string :provider, null: false
+      t.string :uid,      null: false
+
+      t.timestamps
+    end
+
+    # A provider UID is meaningful and unique only within its provider.
+    add_index :<%= identity.omniauth_identities_table %>, %i[provider uid], unique: true
+
+    add_index :<%= identity.omniauth_identities_table %>, %i[<%= identity.foreign_key %> provider]
+  end
+end

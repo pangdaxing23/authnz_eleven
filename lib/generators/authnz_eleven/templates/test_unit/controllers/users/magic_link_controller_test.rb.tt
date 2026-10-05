@@ -1,0 +1,90 @@
+require "test_helper"
+
+class <%= identity.module_name %>::MagicLinkControllerTest < ActionDispatch::IntegrationTest
+  include ActionMailer::TestHelper
+
+  setup { @user = <%= identity.plural %>(:alice) }
+
+  test "requesting a link for a known account emails one" do
+    assert_enqueued_emails 1 do
+      post <%= identity.route_scope %>_magic_link_path, params: { email: @user.email }
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+  end
+
+<%- if coy? -%>
+  test "requesting a link for an unknown email gives nothing away" do
+    assert_no_enqueued_emails do
+      post <%= identity.route_scope %>_magic_link_path, params: { email: "nobody-#{SecureRandom.hex(4)}@example.com" }
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+  end
+<%- else -%>
+  test "requesting a link for an unknown email is told no account exists" do
+    assert_no_enqueued_emails do
+      post <%= identity.route_scope %>_magic_link_path, params: { email: "nobody-#{SecureRandom.hex(4)}@example.com" }
+    end
+    assert_redirected_to <%= identity.route_scope %>_new_magic_link_path
+  end
+<%- end -%>
+
+  test "opening a magic link signs nobody in, and the button signs in" do
+    token = @user.generate_magic_link
+
+    # GET must not consume the link or create a session because mail scanners follow links.
+    get <%= identity.route_scope %>_magic_link_path(sid: token)
+    assert_response :success
+    assert cookies[:<%= identity.cookie_name %>].blank?
+
+    patch <%= identity.route_scope %>_magic_link_path(sid: token)
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+
+  test "a used magic link cannot create another session" do
+    token = @user.generate_magic_link
+
+    patch <%= identity.route_scope %>_magic_link_path(sid: token)
+    delete <%= identity.route_scope %>_sign_out_path
+    patch <%= identity.route_scope %>_magic_link_path(sid: token)
+
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "requesting a new link invalidates the old one" do
+    first = @user.generate_magic_link
+    second = @user.generate_magic_link
+    refute_equal first, second
+
+    patch <%= identity.route_scope %>_magic_link_path(sid: first)
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+
+    patch <%= identity.route_scope %>_magic_link_path(sid: second)
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+
+  test "a missing cache entry rejects an otherwise valid link" do
+    token = @user.generate_magic_link
+    Rails.cache.delete(@user.magic_link_nonce_key)
+
+    get <%= identity.route_scope %>_magic_link_path(sid: token)
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+
+    patch <%= identity.route_scope %>_magic_link_path(sid: token)
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "an expired magic link is refused by both halves and signs nobody in" do
+    token = @user.generate_magic_link
+    travel <%= identity.config_reference %>.tokens.magic_link + 1.minute
+
+    get <%= identity.route_scope %>_magic_link_path(sid: token)
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+
+    patch <%= identity.route_scope %>_magic_link_path(sid: token)
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+end

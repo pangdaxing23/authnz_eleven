@@ -1,0 +1,421 @@
+module <%= identity.authentication_concern %>
+  extend ActiveSupport::Concern
+<%- if webauthn_credentials? || sudoable? -%>
+
+<%- if webauthn_credentials? -%>
+  include WebauthnCeremony
+<%- end -%>
+<%- if sudoable? -%>
+  include Sudoable
+<%- end -%>
+<%- end -%>
+<%- if bannable? -%>
+
+  class <%= identity.class_name %>Banned < StandardError; end
+<%- end -%>
+
+  included do
+<%- if bannable? -%>
+    rescue_from <%= identity.class_name %>Banned, with: :handle_<%= identity.singular %>_banned
+
+<%- end -%>
+    before_action :set_current_request_details
+    before_action :resume_session
+    before_action :require_authentication
+<%- impediments.each do |callback, *| -%>
+    before_action :<%= callback %>, <%= impediment_conditions %>
+<%- end -%>
+<%- if impeded? -%>
+
+<%- end -%>
+    helper_method :authenticated?
+<%- if impersonatable? -%>
+    helper_method :impersonating?
+<%- end -%>
+<%- if easy_dev_login? && password? -%>
+
+    if Rails.env.development?
+      include EasyDevLogin
+    end
+<%- end -%>
+  end
+
+  class_methods do
+    def allow_unauthenticated_access(**options)
+      skip_before_action :require_authentication, **options
+    end
+
+    def require_unauthenticated_access(**options)
+      allow_unauthenticated_access(**options)
+      before_action :redirect_authenticated_user, **options
+    end
+<%- if adminable? -%>
+
+    def not_found_unless(predicate = nil, &block)
+      block ||= -> { send(predicate) }
+
+      define_method(:require_authentication) do
+        raise ActiveRecord::RecordNotFound unless authenticated? && instance_exec(&block)
+      end
+
+      private :require_authentication
+    end
+<%- end -%>
+<%- if guestable? -%>
+
+    def allow_guest_access(**options)
+      allow_unauthenticated_access(**options)
+      before_action :ensure_guest_session, **options
+    end
+<%- end -%>
+<%- if impeded? -%>
+
+    def skip_impediments(**options)
+      skip_before_action <%= impediment_callbacks %>, **options, raise: false
+    end
+<%- end -%>
+  end
+
+  private
+
+  def set_current_request_details
+    <%= identity.current_class %>.user_agent = request.user_agent
+    <%= identity.current_class %>.ip_address = request.ip
+    <%= identity.current_class %>.request_id = request.request_id
+  end
+
+  def resume_session
+    <%= identity.current_class %>.session ||= find_session_by_cookie
+    return unless <%= identity.current_class %>.session
+<%- if impersonatable? -%>
+
+    <%= identity.current_class %>.impersonated_user = find_impersonated_user
+
+    if impersonation_timed_out?
+      expire_impersonation!
+      return
+    end
+<%- end -%>
+<%- if timeoutable? -%>
+
+    if current_session_timed_out?
+      expire_current_session!
+      return
+    end
+<%- end -%>
+
+    refresh_current_session_activity!
+  end
+
+  def find_session_by_cookie
+    if (token = cookies.signed[:<%= identity.cookie_name %>])
+      <%= identity.session_class %>.find_by(id: token)
+    end
+  end
+
+<%- if timeoutable? -%>
+  def current_session_timed_out?
+<%- if guestable? -%>
+    return false if <%= identity.current_class %>.user.guest?
+
+<%- end -%>
+    <%= identity.current_class %>.session.updated_at < <%= identity.config_reference %>.session.idle_timeout.ago
+  end
+
+  def expire_current_session!
+    terminate_current_session
+    flash[:alert] = "Your session has expired. Please sign in again."
+  end
+
+<%- end -%>
+  def refresh_current_session_activity!
+    return if <%= identity.current_class %>.session.updated_at >= <%= identity.config_reference %>.session.activity_write_interval.ago
+
+    <%= identity.current_class %>.session.touch
+<%- if last_seenable? && impersonatable? -%>
+    <%= identity.current_class %>.true_user.mark_last_seen!
+<%- elsif last_seenable? -%>
+    <%= identity.current_class %>.user.mark_last_seen!
+<%- end -%>
+  end
+
+  def authenticated?
+<%- if guestable? -%>
+    <%= identity.current_class %>.session.present? && !<%= identity.current_class %>.user.guest?
+<%- else -%>
+    <%= identity.current_class %>.session.present?
+<%- end -%>
+  end
+
+  def require_authentication
+    return if authenticated?
+    request_authentication
+  end
+
+  def request_authentication
+    remember_interrupted_destination
+    redirect_to <%= identity.route_scope %>_sign_in_path, status: :see_other
+  end
+<%- impediments.each do |callback, predicate, path, message| -%>
+
+  def <%= callback %>
+    return if <%= identity.current_class %>.user.<%= predicate %>
+
+    remember_interrupted_destination
+    redirect_to <%= path %>, alert: "<%= message %>", status: :see_other
+  end
+<%- end -%>
+
+  def redirect_authenticated_user
+    return unless authenticated?
+
+    redirect_to after_authentication_url, status: :see_other
+  end
+
+  # All sessions should be created through this method
+<%- if rememberable? -%>
+  def start_new_session_for(user, via:, remember: false)
+<%- else -%>
+  def start_new_session_for(user, via:)
+<%- end -%>
+<%- if bannable? -%>
+    raise <%= identity.class_name %>Banned, ban_message(user) if user.banned?
+
+<%- end -%>
+<%- if second_factor? -%>
+    if second_factor_required?(user, via:)
+      store_mfa_challenge_token(user, via)
+<%- if rememberable? -%>
+      session[:<%= session_key(:remember_me) %>] = remember
+<%- end -%>
+<%- if multiple_second_factors? -%>
+      redirect_to second_factor_challenge_path(user)
+<%- else -%>
+      redirect_to <%= second_factor_challenge_lines.first %>
+<%- end -%>
+      return false
+    end
+
+    via = session.delete(:<%= session_key(:sign_in_via) %>) if via == :second_factor
+    session.delete(:<%= session_key(:challenge_token) %>)
+
+<%- end -%>
+<%- if guestable? -%>
+    previous_guest = <%= identity.current_class %>.user if <%= identity.current_class %>.session && <%= identity.current_class %>.user.guest?
+
+<%- end -%>
+<%- if max_sessions_evict? -%>
+    evict_sessions_over_limit!(user)
+<%- end -%>
+    <%= identity.current_class %>.session = user.sessions.create!(via:)
+    set_session_cookie<%= rememberable? ? "(expires: (#{identity.config_reference}.session.remember_for.from_now if remember))" : "" %>
+<%- if last_seenable? -%>
+    user.mark_last_seen!
+<%- end -%>
+<%- if guestable? -%>
+
+    user.absorb_guest(previous_guest) if previous_guest
+<%- end -%>
+<%- if invitable? -%>
+
+    session.delete(:<%= session_key(:pending_invitation_token) %>)
+<%- end -%>
+<%- if session_carries_team? -%>
+    <%= identity.current_class %>.session.update!(team: landing_team)
+<%- end -%>
+<%- if second_factor? -%>
+    true
+<%- end -%>
+  end
+
+<%- if second_factor? -%>
+  def second_factor_required?(user, via:)
+    user.second_factor_enrolled? && <%= identity.config_reference %>.second_factor.needed_after.include?(via)
+  end
+<%- if multiple_second_factors? -%>
+
+  def second_factor_challenge_path(user)
+<%- second_factor_challenge_lines[0..-2].each do |line| -%>
+    <%= line %>
+<%- end -%>
+
+    <%= second_factor_challenge_lines.last %>
+  end
+<%- end -%>
+
+  def store_mfa_challenge_token(user, via)
+    session[:<%= session_key(:challenge_token) %>] = user.generate_token_for(:authentication_challenge)
+    session[:<%= session_key(:sign_in_via) %>] = via
+  end
+
+<%- end -%>
+<%- if max_sessions_evict? -%>
+  def evict_sessions_over_limit!(user)
+    limit = <%= identity.config_reference %>.session.concurrent_limit
+    return unless limit
+
+    surplus = user.sessions.count - (limit - 1)
+    user.sessions.order(updated_at: :asc).limit(surplus).destroy_all if surplus.positive?
+  end
+
+<%- end -%>
+  def set_session_cookie(expires: nil)
+    cookies.signed[:<%= identity.cookie_name %>] = {
+      value: <%= identity.current_class %>.session.id,
+      expires:,
+      secure: Rails.env.production?,
+      httponly: true,
+      same_site: :lax
+    }
+  end
+<%- if bannable? -%>
+
+  def ban_message(user)
+    return "Your account is suspended until #{user.banned_until.to_date.to_fs(:long)}." if user.banned_until
+
+    "Your account has been suspended."
+  end
+
+  def handle_<%= identity.singular %>_banned(exception)
+    if request.format.json?
+      render json: { error: exception.message }, status: :forbidden
+    else
+      redirect_to <%= identity.route_scope %>_sign_in_path, alert: exception.message
+    end
+  end
+<%- end -%>
+<%- if guestable? -%>
+
+  def ensure_guest_session
+    return if <%= identity.current_class %>.session
+
+    guest = <%= identity.class_name %>.create_guest!
+    <%= identity.current_class %>.session = guest.sessions.create!(via: :guest)
+<%- if last_seenable? -%>
+    guest.mark_last_seen!
+<%- end -%>
+    set_session_cookie(expires: guest.created_at + <%= identity.config_reference %>.guest.ttl)
+  end
+<%- end -%>
+
+  def terminate_current_session
+<%- if impersonatable? -%>
+    stop_impersonating_user
+<%- end -%>
+    <%= identity.current_class %>.session&.destroy
+    <%= identity.current_class %>.session = nil
+    cookies.delete(:<%= identity.cookie_name %>)
+    reset_session
+  end
+
+  def remember_interrupted_destination
+    return unless request.get? && request.format.html?
+
+    session[:<%= interrupted_destination_key %>] ||= request.fullpath
+  end
+
+  def interrupted_destination(otherwise:)
+    session.delete(:<%= interrupted_destination_key %>) || otherwise
+  end
+
+  def after_authentication_url
+<%- if session_carries_team? -%>
+    set_session_team!(landing_team) if landing_team
+<%- end -%>
+    interrupted_destination(otherwise: default_post_sign_in_path)
+  end
+
+  def default_post_sign_in_path
+<%- if admin_dashboard? -%>
+    return <%= admin_helper("root_path") %> if <%= identity.current_class %>.user.admin?
+<%- end -%>
+<%- if scope_teams? -%>
+    return <%= team_root_helper %>(team_id: landing_team) if landing_team
+
+<%- elsif middleware_teams? -%>
+    return root_url(script_name: "/#{landing_team.id}") if landing_team
+
+<%- end -%>
+    <%= identity.namespaced? ? "#{identity.route_scope}_root_path" : "root_path" %>
+  end
+<%- if teams? -%>
+
+  def landing_team
+    <%= identity.current_class %>.user.primary_team
+  end
+<%- end -%>
+<%- if session_carries_team? -%>
+
+  def set_session_team!(team)
+    raise ActiveRecord::RecordNotFound, "Team not accessible" unless <%= identity.current_class %>.user.member_of?(team)
+    <%= identity.current_class %>.session&.update!(team:)
+  end
+<%- end -%>
+<%- if invitable? -%>
+
+  def pending_invitation
+    # Caches either an invitation or nil.
+    return @pending_invitation if defined?(@pending_invitation)
+
+    @pending_invitation = <%= identity.invitation_class %>.find_by_token_for(:invitation, session[:<%= session_key(:pending_invitation_token) %>])
+  end
+<%- if omniauth? -%>
+
+  def pending_invitation_for(address)
+    pending_invitation if pending_invitation&.email_addressed? && pending_invitation.sent_to == address&.strip&.downcase
+  end
+<%- end -%>
+<%- if invite_only? -%>
+
+  def require_invitation_to_register
+    return if pending_invitation
+
+    redirect_to <%= identity.route_scope %>_sign_in_path, alert: "Registration is invite-only."
+  end
+<%- end -%>
+<%- end -%>
+<%- if impersonatable? -%>
+
+  def impersonating?
+    <%= identity.current_class %>.impersonated_user.present?
+  end
+
+  def find_impersonated_user
+    return unless <%= identity.current_class %>.true_user.admin?
+
+    <%= identity.class_name %>.find_by(id: session[:<%= session_key(:impersonated_user_id) %>]) # .find raises, .find_by returns nil
+  end
+
+  def impersonation_timed_out?
+    return false unless impersonating?
+
+    session[:<%= session_key(:impersonation_started_at) %>].to_i < <%= identity.config_reference %>.impersonation.duration.ago.to_i
+  end
+
+  def expire_impersonation!
+    stop_impersonating_user
+    redirect_to <%= admin_helper("root_path") %>, alert: "Impersonation timed out.", status: :see_other
+  end
+
+  def impersonate_user(user)
+    <%= identity.current_class %>.impersonated_user = user
+<%- if session_carries_team? -%>
+    <%= identity.current_class %>.session&.update!(team: user.primary_team)
+<%- end -%>
+    session[:<%= session_key(:impersonated_user_id) %>] = user.id
+    session[:<%= session_key(:impersonation_started_at) %>] = Time.current.to_i
+<%- if trackable? -%>
+    user.record_event("<%= identity.singular %>.impersonation_started", actor: <%= identity.current_class %>.true_user)
+<%- end -%>
+  end
+
+  def stop_impersonating_user
+<%- if trackable? -%>
+    <%= identity.current_class %>.impersonated_user&.record_event("<%= identity.singular %>.impersonation_stopped", actor: <%= identity.current_class %>.true_user)
+<%- end -%>
+    <%= identity.current_class %>.impersonated_user = nil
+    session.delete(:<%= session_key(:impersonated_user_id) %>)
+    session.delete(:<%= session_key(:impersonation_started_at) %>)
+  end
+<%- end -%>
+end

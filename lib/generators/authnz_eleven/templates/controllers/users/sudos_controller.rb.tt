@@ -1,0 +1,42 @@
+class <%= identity.module_name %>::SudosController < <%= identity.controller_superclass %>
+<%- if impeded? -%>
+  skip_impediments
+
+<%- end -%>
+  def new
+<%- if fail_open_sudo? -%>
+    <%= "return " if sudo_bars.include?(:webauthn) %>redirect_to(sudo_proceed_url) if sudo_strategy == :open
+<%- end -%>
+<%- if sudo_bars.include?(:webauthn) -%>
+<%- if fail_open_sudo? -%>
+
+<%- end -%>
+    respond_to do |format|
+      format.html
+      format.json do
+        issue_webauthn_challenge(WebAuthn::Credential.options_for_get(
+<%- if passkey? -%>
+          user_verification: "<%= passkey_and_security_keys? ? "preferred" : "required" %>",
+<%- end -%>
+          allow: <%= sudo_subject %>.webauthn_credentials.pluck(:external_id)
+        ))
+      end
+    end
+<%- end -%>
+  end
+
+  def create
+    if sudo_confirmed?
+      redirect_to sudo_proceed_url
+    else
+      redirect_to new_<%= identity.route_scope %>_sudo_path, alert: "That didn't match. Please try again."
+    end
+  end
+
+  private
+
+  def sudo_proceed_url
+    session.delete(:<%= session_key(:sudo_message) %>)
+    session.delete(:<%= session_key(:sudo_proceed_to) %>).presence || <%= identity.settings_helper_prefix %>_url
+  end
+end

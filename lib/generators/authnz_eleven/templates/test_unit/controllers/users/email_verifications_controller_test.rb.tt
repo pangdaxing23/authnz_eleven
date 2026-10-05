@@ -1,0 +1,74 @@
+require "test_helper"
+
+class <%= identity.module_name %>::EmailVerificationsControllerTest < ActionDispatch::IntegrationTest
+  setup { @user = <%= identity.plural %>(:bob) }
+
+  test "opening the link changes nothing until it is confirmed" do
+    original = @user.email
+    @user.update!(pending_email: "moved@example.com")
+    token = @user.generate_token_for(:email_change_verification)
+
+    get <%= identity.route_scope %>_verify_email_change_path(sid: token)
+
+    assert_response :success
+    assert_equal original, @user.reload.email
+    assert_equal "moved@example.com", @user.pending_email
+  end
+
+  test "confirming a change adopts the new address without signing anyone in" do
+    @user.update!(pending_email: "moved@example.com")
+    token = @user.generate_token_for(:email_change_verification)
+
+    patch <%= identity.route_scope %>_verify_email_change_path(sid: token)
+
+    assert_equal "moved@example.com", @user.reload.email
+    assert_nil @user.pending_email
+    assert_not cookies[:<%= identity.cookie_name %>].present?, "proving an address is not a reason to hand out a session"
+  end
+
+  test "a link is good for exactly one use" do
+    @user.update!(pending_email: "moved@example.com")
+    token = @user.generate_token_for(:email_change_verification)
+
+    patch <%= identity.route_scope %>_verify_email_change_path(sid: token)
+    patch <%= identity.route_scope %>_verify_email_change_path(sid: token)
+
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_equal "That confirmation link is invalid or has expired.", flash[:alert]
+  end
+
+  test "replacing the pending address invalidates its old link" do
+    original = @user.email
+    @user.update!(pending_email: "first@example.com")
+    token = @user.generate_token_for(:email_change_verification)
+    @user.update!(pending_email: "second@example.com")
+
+    patch <%= identity.route_scope %>_verify_email_change_path(sid: token)
+
+    assert_equal original, @user.reload.email
+    assert_equal "second@example.com", @user.pending_email
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+  end
+
+  test "an invalid or expired link is refused" do
+    patch <%= identity.route_scope %>_verify_email_change_path(sid: "not-a-real-token")
+
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_equal "That confirmation link is invalid or has expired.", flash[:alert]
+  end
+<%- if email_gated_registration? -%>
+
+  test "a sign-up link is refused at the email-change endpoint" do
+    registration = <%= identity.pending_registration_class %>.new(email: "fresh@example.com"<%= staged_registration_invitation(%("fresh@example.com")) %>)
+    registration.save!(validate: false)
+    token = registration.generate_token_for(:registration_email_verification)
+
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      patch <%= identity.route_scope %>_verify_email_change_path(sid: token)
+    end
+
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_equal "That confirmation link is invalid or has expired.", flash[:alert]
+  end
+<%- end -%>
+end

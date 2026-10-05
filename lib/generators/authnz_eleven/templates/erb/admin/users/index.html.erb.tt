@@ -1,0 +1,32 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1>Users</h1>
+
+<table>
+  <thead>
+    <tr><th><%= principals.display.label %></th><th>Admin</th><%- if deadboltable? -%><th>Deadbolted</th><%- end -%><%- if bannable? -%><th>Suspended</th><%- end -%><th></th></tr>
+  </thead>
+  <tbody>
+    <%% @users.each do |user| %>
+      <tr>
+        <td><%%= link_to user.<%= principals.display.column %>, <%= admin_helper("user_path") %>(user) %></td>
+        <td><%%= user.admin? %></td>
+<%- if deadboltable? -%>
+        <td><%%= user.deadbolted? %></td>
+<%- end -%>
+<%- if bannable? -%>
+        <td><%%= user.banned? %></td>
+<%- end -%>
+        <td>
+          <%% unless user.admin? %>
+<%- if impersonatable? -%>
+            <%%= button_to "Impersonate", <%= admin_helper("impersonate_user_path") %>(user), method: :post %>
+<%- end -%>
+            <%%= button_to "Delete", <%= admin_helper("user_path") %>(user), method: :delete,
+                  data: {turbo_confirm: "Delete #{user.<%= principals.display.column %>}?"} %>
+          <%% end %>
+        </td>
+      </tr>
+    <%% end %>
+  </tbody>
+</table>

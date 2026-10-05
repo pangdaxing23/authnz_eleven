@@ -1,0 +1,34 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Your teams</h1>
+<%- if session_carries_team? -%>
+
+<%% if <%= identity.current_class %>.user.on_a_team? %>
+  <%%= form_with url: <%= identity.nested_helper("active_team_path") %>, method: :post do |form| %>
+    <%% @teams.each do |team| %>
+      <div>
+        <label>
+          <%%= radio_button_tag "team_id", team.id %>
+          <%%= team.name %>
+        </label>
+      </div>
+    <%% end %>
+
+    <div><%%= form.submit "Continue" %></div>
+  <%% end %>
+<%% end %>
+<%- else -%>
+
+<ul>
+  <%% @teams.each do |team| %>
+<%- if scope_teams? -%>
+    <li><%%= link_to team.name, <%= team_root_helper %>(team_id: team) %></li>
+<%- else -%>
+    <li><%%= link_to team.name, root_path(script_name: "/#{team.id}") %></li>
+<%- end -%>
+  <%% end %>
+</ul>
+<%- end -%>
+
+<%%= link_to "Start a new team", new_<%= identity.nested_helper("team_path") %> %>

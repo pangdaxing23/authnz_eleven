@@ -1,0 +1,11 @@
+module Captchable
+  extend ActiveSupport::Concern
+
+  private
+
+  def captcha_verified?
+    return @captcha_verified if defined?(@captcha_verified)
+
+    @captcha_verified = Captcha.verify(params[:captcha_token], ip: request.remote_ip)
+  end
+end

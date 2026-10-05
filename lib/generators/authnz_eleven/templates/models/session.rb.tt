@@ -1,0 +1,46 @@
+class <%= identity.session_class %> < ApplicationRecord
+  belongs_to :<%= identity.singular %>
+<%- if session_carries_team? -%>
+  belongs_to :team, optional: true
+<%- end -%>
+<%- if identity.namespaced? -%>
+
+  alias_method :user, :<%= identity.singular %>
+<%- end -%>
+<%- if timeoutable? -%>
+
+  def self.idle_timeout
+    <%= identity.config_reference %>.session.idle_timeout
+  end
+
+  scope :active,    -> { where(updated_at: idle_timeout.ago..) }
+<%- if guestable? -%>
+  scope :timed_out, -> { where(updated_at: ...idle_timeout.ago).where.not(<%= identity.singular %>: <%= identity.class_name %>.guests) }
+<%- else -%>
+  scope :timed_out, -> { where(updated_at: ...idle_timeout.ago) }
+<%- end -%>
+<%- end -%>
+
+  before_create do
+    self.user_agent = <%= identity.current_class %>.user_agent
+    self.ip_address = <%= identity.current_class %>.ip_address
+  end
+<%- if trackable? -%>
+
+  after_create do
+<%- if guestable? -%>
+    <%= identity.singular %>.record_event("<%= identity.singular %>.signed_in", actor: <%= identity.singular %>, data: { via:, user_agent:, ip_address: }) unless <%= identity.singular %>.guest?
+<%- else -%>
+    <%= identity.singular %>.record_event("<%= identity.singular %>.signed_in", actor: <%= identity.singular %>, data: { via:, user_agent:, ip_address: })
+<%- end -%>
+  end
+
+  after_destroy do
+<%- if guestable? -%>
+    <%= identity.singular %>.record_event("<%= identity.singular %>.signed_out", actor: <%= identity.singular %>, data: { via:, user_agent:, ip_address: }) unless <%= identity.singular %>.guest?
+<%- else -%>
+    <%= identity.singular %>.record_event("<%= identity.singular %>.signed_out", actor: <%= identity.singular %>, data: { via:, user_agent:, ip_address: })
+<%- end -%>
+  end
+<%- end -%>
+end

@@ -1,0 +1,30 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Enter your code</h1>
+
+<p>Type the six-digit code we texted you.</p>
+
+<%#- The number is deliberately NOT echoed here. This page answers identically
+      whether or not the number that was submitted has an account, and printing it
+      back (even the one that was typed) invites the habit of trusting whatever
+      the page claims to know about you. -%>
+
+<%%= form_with url: <%= identity.route_scope %>_sms_sign_in_code_path, method: :patch do |form| %>
+  <div>
+    <%%= form.label :code, "Sign-in code" %><br>
+    <%%= form.text_field :code, required: true, autocomplete: "one-time-code",
+          inputmode: "numeric", pattern: "[0-9]*", autofocus: true %>
+  </div>
+
+  <div><%%= form.submit "Sign in" %></div>
+<%% end %>
+
+<%#- Resending means going back and retyping the number, deliberately. A resend
+      button here would need a second endpoint that texts whatever number the
+      pending row names, reachable by anyone who reached this page, and it would
+      buy very little, since the request form is one click away. -%>
+<p>
+  <%%= link_to "Didn't get it? Request another code", <%= identity.route_scope %>_sms_sign_in_path %> |
+  <%%= link_to "Back to sign in", <%= identity.route_scope %>_sign_in_path %>
+</p>

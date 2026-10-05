@@ -1,0 +1,11 @@
+class SmsDeliveryJob < ApplicationJob
+  queue_as :default
+
+  self.log_arguments = false
+
+  retry_on Sms::Twilio::TransientError, wait: :polynomially_longer, attempts: 3
+
+  def perform(to:, body:)
+    Sms.deliver(to: to, body: body)
+  end
+end

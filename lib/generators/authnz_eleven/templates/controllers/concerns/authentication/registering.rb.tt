@@ -1,0 +1,25 @@
+module <%= identity.authentication_concern %>::Registering
+  extend ActiveSupport::Concern
+
+  private
+
+<%= advance_body %>
+
+  def finish_registration(result)
+    case result.status
+    when :created
+      session.delete(:<%= pending_registration_session_key %>)
+      <%= sign_in_call("result.user", via: "result.via", may_challenge: false) %>
+      redirect_to after_authentication_url, status: :see_other
+    when :taken
+      session.delete(:<%= pending_registration_session_key %>)
+      redirect_to <%= identity.route_scope %>_sign_in_path, alert: "You already have an account. Sign in to continue."
+    when :invalid
+      render_invalid_registration
+    end
+  end
+
+  def render_invalid_registration
+    render :new, status: :unprocessable_entity
+  end
+end

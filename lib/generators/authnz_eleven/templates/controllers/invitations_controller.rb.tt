@@ -1,0 +1,65 @@
+class <%= identity.namespaced? ? "#{identity.module_name}::InvitationsController" : "InvitationsController" %> < <%= identity.controller_superclass %>
+  allow_unauthenticated_access only: :show
+<%- if teams? -%>
+  skip_before_action :require_team
+<%- end -%>
+
+  before_action :set_invitation
+
+<%- if teams? -%>
+  def show
+    return if authenticated?
+
+    if invited_account_exists?
+      remember_interrupted_destination
+      redirect_to <%= identity.route_scope %>_sign_in_path, alert: "Sign in to accept your invitation."
+    else
+      session[:<%= session_key(:pending_invitation_token) %>] = params.expect(:token)
+      redirect_to <%= registration_entry_path %>, notice: "Create an account to accept your invitation."
+    end
+  end
+
+  def update
+    unless @invitation.accept(<%= identity.current_class %>.user)
+      return redirect_to <%= identity.nested_helper("root_path") %>, alert: "That invitation was sent to a different <%= multi_channel_invitable? ? "email address or phone number" : (email_invitable? ? "email address" : "phone number") %>."
+    end
+
+    team = @invitation.team
+<%- if session_carries_team? -%>
+    set_session_team!(team) if team
+    redirect_to <%= identity.nested_helper("root_path") %>, notice: team && "You've joined #{team.name}.", status: :see_other
+<%- elsif scope_teams? -%>
+    redirect_to team ? <%= team_root_helper %>(team_id: team) : <%= identity.nested_helper("root_path") %>,
+      notice: team && "You've joined #{team.name}.", status: :see_other
+<%- else -%>
+    redirect_to root_url(script_name: team && "/#{team.id}"),
+      notice: team && "You've joined #{team.name}.", status: :see_other
+<%- end -%>
+  end
+<%- else -%>
+  def show
+    if authenticated?
+      redirect_to <%= identity.namespaced? ? "#{identity.route_scope}_root_path" : "root_path" %>, notice: "You already have an account."
+    else
+      session[:<%= session_key(:pending_invitation_token) %>] = params.expect(:token)
+      redirect_to <%= registration_entry_path %>, notice: "Create an account to accept your invitation."
+    end
+  end
+<%- end -%>
+
+  private
+
+  def set_invitation
+    @invitation = <%= identity.invitation_class %>.find_by_token_for(:invitation, params.expect(:token))
+
+    unless @invitation
+      redirect_to <%= identity.namespaced? ? "#{identity.route_scope}_root_path" : "root_path" %>, alert: "That invitation is invalid or has expired."
+    end
+  end
+<%- if teams? -%>
+
+  def invited_account_exists?
+    <%= identity.class_name %>.exists?(@invitation.sent_to_channel => @invitation.sent_to)
+  end
+<%- end -%>
+end

@@ -1,0 +1,20 @@
+module <%= identity.class_name %>::TeamMember
+  extend ActiveSupport::Concern
+
+  included do
+    has_many :memberships, dependent: :destroy
+    has_many :teams, through: :memberships
+  end
+
+  def on_a_team?
+    memberships.any?
+  end
+
+  def primary_team
+    teams.first
+  end
+
+  def member_of?(team)
+    memberships.exists?(team:)
+  end
+end

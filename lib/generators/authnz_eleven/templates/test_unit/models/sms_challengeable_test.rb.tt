@@ -1,0 +1,108 @@
+require "test_helper"
+
+class <%= identity.class_name %>::SmsChallengeableTest < ActiveSupport::TestCase
+  include ActiveJob::TestHelper
+
+  setup do
+    @user = <%= identity.plural %>(:bob)
+    Rails.cache.clear
+  end
+
+  test "issuing stores a challenge and texts six digits" do
+    assert_enqueued_with(job: SmsDeliveryJob) do
+      assert @user.issue_sms_challenge
+    end
+
+    assert @user.sms_challenge?
+    assert_match(/\d{6} is your/, enqueued_jobs.last.to_s)
+  end
+
+  test "a new delivery replaces the previous code" do
+    @user.issue_sms_challenge
+    replace_code("xxxxxx")
+
+    @user.issue_sms_challenge
+
+    assert_not @user.verify_sms_challenge("xxxxxx")
+    assert @user.verify_sms_challenge(issued_code)
+  end
+
+  test "a correct code works exactly once" do
+    @user.issue_sms_challenge
+    code = issued_code
+
+    assert @user.verify_sms_challenge(code)
+    assert_not @user.verify_sms_challenge(code)
+  end
+
+  test "a correct code verifies only the number it was texted to" do
+    @user.issue_sms_challenge(to: "+14155550100")
+    code = issued_code
+
+    assert_not @user.verify_sms_challenge(code, to: "+14155550199")
+    assert @user.verify_sms_challenge(code, to: "+14155550100")
+  end
+
+  test "a code waiting for another number is not a challenge for this one" do
+    @user.issue_sms_challenge(to: "+14155550100")
+
+    assert_not @user.sms_challenge?
+    assert @user.sms_challenge?(to: "+14155550100")
+  end
+
+  test "a code expires" do
+    @user.issue_sms_challenge
+    code = issued_code
+    travel <%= identity.config_reference %>.tokens.sms_code + 1.minute
+
+    assert_not @user.verify_sms_challenge(code)
+  end
+
+  test "wrong codes spend the attempt budget" do
+    @user.issue_sms_challenge
+    code = issued_code
+
+    <%= identity.config_reference %>.sms.max_attempts.times do
+      assert_not @user.verify_sms_challenge(wrong_code)
+    end
+
+    assert_not @user.verify_sms_challenge(code)
+  end
+
+  test "a new delivery starts a fresh attempt budget" do
+    @user.issue_sms_challenge
+    <%= identity.config_reference %>.sms.max_attempts.times do
+      @user.verify_sms_challenge(wrong_code)
+    end
+
+    @user.issue_sms_challenge
+
+    assert @user.verify_sms_challenge(issued_code)
+  end
+
+  test "a missing cache fails closed" do
+    cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::NullStore.new
+
+    @user.issue_sms_challenge
+
+    assert_not @user.verify_sms_challenge(issued_code)
+  ensure
+    Rails.cache = cache
+  end
+
+  private
+
+  def issued_code
+    enqueued_jobs.reverse.filter_map { |job| job.to_s[/(\d{6}) is your/, 1] }.first
+  end
+
+  def wrong_code
+    issued_code == "000000" ? "000001" : "000000"
+  end
+
+  def replace_code(code, to: @user.phone)
+    Rails.cache.write(@user.send(:sms_challenge_key, :code), { code: code, to: to },
+      expires_in: <%= identity.config_reference %>.tokens.sms_code)
+  end
+end

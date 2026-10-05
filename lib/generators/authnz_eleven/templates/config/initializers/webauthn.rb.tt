@@ -1,0 +1,14 @@
+WebAuthn.configure do |config|
+  # The fully-qualified origin(s) of your app. Set per environment (use your
+  # real https origin(s) in production)
+  config.allowed_origins = ENV.fetch("WEBAUTHN_ORIGIN", "http://localhost:3000").split(",")
+
+  # The domain WebAuthn credentials are scoped to (no scheme, port, or path).
+  # Set WEBAUTHN_RP_ID in production. Every allowed origin's host must equal
+  # this value or be its subdomain; for example, app.example.com and
+  # admin.example.com can share an RP ID of example.com.
+  config.rp_id = ENV.fetch("WEBAUTHN_RP_ID", "localhost")
+
+  # Relying-party display name, shown by some authenticators.
+  config.rp_name = Rails.application.class.module_parent_name
+end

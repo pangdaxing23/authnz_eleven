@@ -1,0 +1,39 @@
+require "test_helper"
+
+class <%= identity.settings_module %>::EmailVerificationsControllerTest < ActionDispatch::IntegrationTest
+  include ActionMailer::TestHelper
+
+  setup { @user = <%= identity.plural %>(:bob) }
+
+  test "a resend goes to the address being verified, not the one on file" do
+    @user.update!(pending_email: "moved@example.com")
+    sign_in_as @user
+
+    assert_emails 1 do
+      post <%= identity.settings_helper_prefix %>_email_verification_path
+    end
+
+    assert_equal [ "moved@example.com" ], ActionMailer::Base.deliveries.last.to
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_email_path
+  end
+
+  test "a resend with nothing outstanding sends nothing" do
+    sign_in_as @user
+
+    assert_no_emails do
+      post <%= identity.settings_helper_prefix %>_email_verification_path
+    end
+
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_email_path
+<%- if coy? -%>
+    assert_equal "We sent you another link.", flash[:notice],
+      "a build with nothing outstanding must answer exactly as one with a link in flight"
+<%- end -%>
+  end
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

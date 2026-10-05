@@ -1,0 +1,28 @@
+class <%= identity.current_class %> < ActiveSupport::CurrentAttributes
+  attribute :session
+  attribute :user_agent, :ip_address, :request_id
+<%- if impersonatable? -%>
+  attribute :impersonated_user
+
+  def true_user
+    session&.<%= identity.singular %>
+  end
+
+  def user
+    impersonated_user || true_user
+  end
+
+  def user=(user)
+    self.impersonated_user = user
+  end
+<%- else -%>
+
+  def user
+    session&.<%= identity.singular %>
+  end
+<%- end -%>
+<%- if teams? -%>
+
+  attribute :team
+<%- end -%>
+end

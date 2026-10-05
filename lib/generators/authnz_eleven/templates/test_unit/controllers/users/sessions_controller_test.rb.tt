@@ -1,0 +1,124 @@
+require "test_helper"
+
+class <%= identity.module_name %>::SessionsControllerTest < ActionDispatch::IntegrationTest
+  setup { @user = <%= identity.plural %>(:alice) }
+
+<%- if password? -%>
+  test "signs in with valid credentials" do
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+
+  test "rejects invalid credentials without revealing existence" do
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "wrong-password" }
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path(<%= login_hint_param %>: @user.<%= login_field %>)
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- if deadboltable? -%>
+
+  test "deadbolts the password sign-in door after too many failed attempts" do
+    @user.update!(failed_attempts: <%= identity.config_reference %>.deadbolt.maximum_attempts - 1)
+
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "wrong-password" }
+    assert @user.reload.deadbolted?
+
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+    assert cookies[:<%= identity.cookie_name %>].blank?, "the right password must not open a deadbolted door"
+  end
+
+  test "the deadbolt lifts itself once the window passes" do
+    @user.deadbolt!
+
+    travel <%= identity.config_reference %>.deadbolt.duration + 1.minute
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+
+  test "an expired deadbolt starts the count over" do
+    @user.update!(failed_attempts: <%= identity.config_reference %>.deadbolt.maximum_attempts - 1)
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "wrong-password" }
+    assert @user.reload.deadbolted?
+
+    travel <%= identity.config_reference %>.deadbolt.duration + 1.minute
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "wrong-password" }
+    assert_not @user.reload.deadbolted?
+    assert_equal 1, @user.failed_attempts
+  end
+
+  test "deadbolting leaves the sessions the account already holds alone" do
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+    assert @user.sessions.any?
+
+    @user.deadbolt!
+    assert @user.sessions.reload.any?
+  end
+
+  test "resets failed attempts after a successful sign in" do
+    @user.update!(failed_attempts: 3)
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+    assert_equal 0, @user.reload.failed_attempts
+  end
+<%- end -%>
+<%- if bannable? && password? -%>
+
+  test "a suspended account cannot sign in and is told so" do
+    @user.ban!
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+    assert cookies[:<%= identity.cookie_name %>].blank?
+    assert_equal "Your account has been suspended.", flash[:alert]
+  end
+
+  test "suspending an account ends the sessions it already holds" do
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+    assert @user.sessions.any?
+
+    @user.ban!
+    assert_empty @user.sessions.reload
+  end
+<%- end -%>
+
+  test "signs out" do
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+    delete <%= identity.route_scope %>_sign_out_path
+    assert_redirected_to root_url
+  end
+<%- if multi_login? && password? -%>
+
+<%- if principals.email -%>
+  test "signs in by email through the shared login field" do
+    post <%= identity.route_scope %>_sign_in_path, params: { login: @user.email, password: "quilted-lantern-moss-97" }
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- end -%>
+<%- if principals.phone -%>
+
+  test "signs in by phone through the shared login field" do
+    post <%= identity.route_scope %>_sign_in_path, params: { login: @user.phone, password: "quilted-lantern-moss-97" }
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- end -%>
+<%- if principals.username -%>
+
+  test "username sign-in folds case" do
+    post <%= identity.route_scope %>_sign_in_path, params: { login: @user.username.upcase, password: "quilted-lantern-moss-97" }
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- end -%>
+<%- end -%>
+<%- else -%>
+  test "signs out" do
+    sign_in_as @user
+
+    delete <%= identity.route_scope %>_sign_out_path
+
+    assert_redirected_to root_url
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+<%- end -%>
+end

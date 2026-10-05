@@ -1,0 +1,45 @@
+require "test_helper"
+
+class <%= identity.class_name %>ApiTokenProbeController < ActionController::API
+  include <%= identity.nested_module("ApiTokenAuthentication") %>
+
+  def index
+    render json: { user_id: current_api_user.id, token_id: current_api_token.id }
+  end
+end
+
+class <%= identity.class_name %>ApiTokenAuthenticationTest < ActionController::TestCase
+  tests <%= identity.class_name %>ApiTokenProbeController
+
+  setup do
+    @routes = ActionDispatch::Routing::RouteSet.new
+    @routes.draw { get "api_token_probe", to: "<%= identity.class_name.underscore %>_api_token_probe#index" }
+    @user = <%= identity.plural %>(:bob)
+    @token, @secret = <%= identity.api_token_class %>.issue!(user: @user, name: "Integration")
+  end
+
+  test "bearer token authenticates without a browser session" do
+    @request.headers["Authorization"] = "Bearer #{@secret}"
+    get :index
+
+    assert_response :success
+    assert_equal @user.id, response.parsed_body["user_id"]
+    assert_equal @token.id, response.parsed_body["token_id"]
+    assert_nil <%= identity.current_class %>.session
+  end
+
+  test "missing expired and revoked tokens are rejected" do
+    get :index
+    assert_response :unauthorized
+
+    @request.headers["Authorization"] = "Bearer #{@secret}"
+    @token.update!(expires_at: 1.second.ago)
+    get :index
+    assert_response :unauthorized
+
+    @token.update!(expires_at: 1.day.from_now)
+    @token.destroy!
+    get :index
+    assert_response :unauthorized
+  end
+end

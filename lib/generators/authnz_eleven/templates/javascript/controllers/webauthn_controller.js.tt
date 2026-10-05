@@ -1,0 +1,142 @@
+import { Controller } from "@hotwired/stimulus"
+import { FetchRequest } from "@rails/request.js"
+
+export default class WebauthnController extends Controller {
+  static targets = [ "error", "button", "supportText", "field" ]
+  static classes = [ "loading" ]
+  static values = {
+    challengeUrl: String,
+    verificationUrl: String,
+    fallbackUrl: String,
+    retryText: { type: String, default: "Retry" },
+    notAllowedText: { type: String, default: "That didn't work. Either it was cancelled or took too long. Please try again." },
+    invalidStateText: { type: String, default: "We couldn't add that security key. Please confirm you haven't already registered it, then try again." },
+    unsupportedText: { type: String, default: "This browser can't use passkeys or security keys. Please try again in an up-to-date browser." }
+  }
+
+  connect() {
+    if (!this.supported()) {
+      this.handleUnsupportedBrowser()
+    }
+  }
+
+  getCredential() {
+    this.hideError()
+    this.disableForm()
+    this.requestChallengeAndVerify("get")
+  }
+
+  createCredential() {
+    this.hideError()
+    this.disableForm()
+    this.requestChallengeAndVerify("create")
+  }
+
+
+  supported() {
+    return typeof PublicKeyCredential !== "undefined" &&
+      typeof navigator.credentials !== "undefined" &&
+      typeof PublicKeyCredential.parseCreationOptionsFromJSON === "function" &&
+      typeof PublicKeyCredential.parseRequestOptionsFromJSON === "function" &&
+      typeof PublicKeyCredential.prototype.toJSON === "function"
+  }
+
+  handleUnsupportedBrowser() {
+    this.buttonTarget.disabled = true
+
+    if (this.fallbackUrlValue) return window.location.replace(this.fallbackUrlValue)
+
+    if (this.hasErrorTarget) {
+      this.errorTarget.textContent = this.unsupportedTextValue
+      this.errorTarget.hidden = false
+    }
+    this.supportTextTargets.forEach(target => target.hidden = !target.hidden)
+  }
+
+  async requestChallengeAndVerify(mode) {
+    try {
+      const challengeResponse = await this.requestPublicKeyChallenge()
+      const credentialResponse = await this.requestCredential(mode, challengeResponse)
+
+      if (this.hasFieldTarget) {
+        this.fieldTarget.value = JSON.stringify(credentialResponse.toJSON())
+        this.element.closest("form").requestSubmit()
+      } else {
+        this.onCompletion(await this.verify(credentialResponse.toJSON()))
+      }
+    } catch (error) {
+      this.onError(error)
+    }
+  }
+
+  async requestCredential(mode, challengeResponse) {
+    if (mode === "create") {
+      return await navigator.credentials.create({
+        publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(challengeResponse)
+      })
+    } else {
+      return await navigator.credentials.get({
+        publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(challengeResponse)
+      })
+    }
+  }
+
+  async requestPublicKeyChallenge() {
+    return await this.request("get", this.challengeUrlValue)
+  }
+
+  async verify(credentialResponse) {
+    return await this.request("post", this.verificationUrlValue, {
+      body: JSON.stringify({ credential: credentialResponse }),
+      contentType: "application/json",
+      responseKind: "json"
+    })
+  }
+
+  onCompletion(response) {
+    window.location.replace(response.location)
+  }
+
+  onError(error) {
+    if (error.code === 0 && error.name === "NotAllowedError") {
+      this.errorTarget.textContent = this.notAllowedTextValue
+    } else if (error.code === 11 && error.name === "InvalidStateError") {
+      this.errorTarget.textContent = this.invalidStateTextValue
+    } else {
+      this.errorTarget.textContent = error.message
+    }
+    this.showError()
+  }
+
+  hideError() {
+    if (this.hasErrorTarget) this.errorTarget.hidden = true
+  }
+
+  showError() {
+    if (this.hasErrorTarget) {
+      this.errorTarget.hidden = false
+      this.buttonTarget.textContent = this.retryTextValue
+      this.enableForm()
+    }
+  }
+
+  enableForm() {
+    if (this.hasLoadingClass) this.element.classList.remove(this.loadingClass)
+    this.buttonTarget.disabled = false
+  }
+
+  disableForm() {
+    if (this.hasLoadingClass) this.element.classList.add(this.loadingClass)
+    this.buttonTarget.disabled = true
+  }
+
+  async request(method, url, options) {
+    const request = new FetchRequest(method, url, { responseKind: "json", ...options })
+    const response = await request.perform()
+    const body = await response.json
+
+    if (!response.ok) throw new Error(body.error ?? `Something went wrong (${response.statusCode}).`)
+
+    return body
+  }
+}

@@ -1,0 +1,58 @@
+<%- optional = principals.phone.optional? -%>
+<%- field_label = optional ? %q(phone ? "New phone" : "Phone") : %q("New phone") -%>
+<%- submit_label = optional ? %q(phone ? "Change phone" : "Add a phone") : %q("Change phone") -%>
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<%- if optional -%>
+<%% phone = <%= identity.current_class %>.user.phone_in_database.presence %>
+
+<h1><%%= phone ? "Change your phone" : "Add a phone" %></h1>
+
+<%% if phone %>
+  <p>Current phone: <%%= phone %></p>
+<%% end %>
+<%- else -%>
+<h1>Change your phone</h1>
+
+<p>Current phone: <%%= <%= identity.current_class %>.user.phone_in_database %></p>
+<%- end -%>
+<%- if phone_verifiable? -%>
+<%% if <%= identity.current_class %>.user.pending_phone_in_database.present? %>
+  <p>Unconfirmed phone: <%%= <%= identity.current_class %>.user.pending_phone_in_database %></p>
+<%% end %>
+<%- end -%>
+
+<%% if @user.errors.any? %>
+  <ul style="color: red">
+    <%% @user.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_phone_path, method: :patch do |form| %>
+  <div>
+    <%%= form.label :phone, <%= field_label %> %><br>
+    <%%= form.telephone_field :phone, value: <%= phone_verifiable? ? "#{identity.current_class}.user.pending_phone || " : "" %><%= identity.current_class %>.user.phone<%= principals.phone.required? ? ", required: true" : "" %>, autocomplete: "tel", placeholder: "(415) 826-4001" %>
+<%- if optional -%>
+    <%% if phone %><small>Leave blank to remove your phone.</small><%% end %>
+<%- end -%>
+  </div>
+<%- if sudoable? -%>
+
+  <%%= render "<%= identity.sudo_partial %>", form:, submit: <%= submit_label %> %>
+<%- else -%>
+<%- if password? -%>
+
+  <div>
+    <%%= form.label :password_challenge, "Current password" %><br>
+    <%%= form.password_field :password_challenge, autocomplete: "current-password" %>
+  </div>
+<%- end -%>
+
+  <div><%%= form.submit <%= submit_label %> %></div>
+<%- end -%>
+<%% end %>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

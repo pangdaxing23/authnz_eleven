@@ -1,0 +1,122 @@
+class <%= identity.invitation_class %> < ApplicationRecord
+  belongs_to :inviter, class_name: "<%= identity.class_name %>", inverse_of: :sent_invitations
+  belongs_to :invitee, class_name: "<%= identity.class_name %>", optional: true, inverse_of: :<%= teams? ? "accepted_invitations" : "invitation" %>
+<%- if teams? -%>
+  belongs_to :team, optional: true
+<%- end -%>
+
+  generates_token_for :invitation, expires_in: <%= identity.config_reference %>.tokens.invitation do
+<%- if multi_channel_invitable? -%>
+    [ sent_to, sent_to_channel, accepted_at ]
+<%- else -%>
+    [ sent_to, accepted_at ]
+<%- end -%>
+  end
+
+<%- if multi_channel_invitable? -%>
+  normalizes :sent_to, with: -> {
+    it.include?("@") ? it.strip.downcase : Phonelib.parse(it, <%= identity.config_reference %>.phone.default_country).to_s
+  }
+
+  before_validation do
+    self.sent_to_channel = sent_to&.include?("@") ? "email" : "phone" if will_save_change_to_sent_to?
+  end
+
+  validates :sent_to, presence: true
+  validates :sent_to_channel, inclusion: { in: %w[email phone] }
+  validates :sent_to, <%= principals.email.validation %>, if: :email_addressed?
+  validates :sent_to, phone: { countries: <%= identity.config_reference %>.phone.allowed_countries, format: :e164 }, if: :phone_addressed?
+<%- elsif email_invitable? -%>
+  normalizes :sent_to, with: <%= principals.email.normalization(config_reference: identity.config_reference) %>
+  validates :sent_to, presence: true, <%= principals.email.validation %>
+<%- else -%>
+  normalizes :sent_to, with: <%= principals.phone.normalization(config_reference: identity.config_reference) %>
+  validates :sent_to, presence: true
+  validates :sent_to, phone: { countries: <%= identity.config_reference %>.phone.allowed_countries, format: :e164 }
+<%- end -%>
+<%- if encrypted_pii? -%>
+
+  encrypts :sent_to, deterministic: true
+<%- end -%>
+<%- if coy? -%>
+
+  def offer_unless_redundant
+    offer unless redundant?
+  end
+<%- else -%>
+
+  validate on: :create do
+<%- if teams? -%>
+    errors.add(:base, team ? "#{sent_to} is already a member of #{team.name}." : "#{sent_to} already has an account.") if redundant?
+<%- else -%>
+    errors.add(:base, "#{sent_to} already has an account.") if redundant?
+<%- end -%>
+  end
+<%- end -%>
+
+  def offer
+    update!(expires_at: <%= identity.config_reference %>.tokens.invitation.from_now)
+    signed_id = generate_token_for(:invitation)
+<%- if multi_channel_invitable? -%>
+
+    if email_addressed?
+      <%= identity.mailer_class %>.with(invitation: self, signed_id:, to: sent_to).invitation.deliver_later
+    else
+      Sms.deliver_later(to: sent_to, body: sms_message(signed_id))
+    end
+<%- elsif email_invitable? -%>
+    <%= identity.mailer_class %>.with(invitation: self, signed_id:, to: sent_to).invitation.deliver_later
+<%- else -%>
+    Sms.deliver_later(to: sent_to, body: sms_message(signed_id))
+<%- end -%>
+    signed_id
+  end
+
+  def accepted?
+    accepted_at.present?
+  end
+
+<%- unless multi_channel_invitable? -%>
+  def sent_to_channel = "<%= email_invitable? ? "email" : "phone" %>"
+
+<%- end -%>
+  def email_addressed? = sent_to_channel == "email"
+  def phone_addressed? = sent_to_channel == "phone"
+
+  def addressed_to?(user)
+    sent_to == user[sent_to_channel]
+  end
+
+  def redundant?
+<%- if teams? -%>
+    (team ? team.<%= identity.plural %> : <%= identity.class_name %>).exists?(sent_to_channel => sent_to)
+<%- else -%>
+    <%= identity.class_name %>.exists?(sent_to_channel => sent_to)
+<%- end -%>
+  end
+
+  def accept(user)
+    return false unless addressed_to?(user)
+
+    with_lock do
+      return false if accepted?
+
+      update!(invitee: user, accepted_at: Time.current)
+<%- if teams? -%>
+      team.memberships.find_or_create_by!(<%= identity.singular %>: user) if team
+<%- end -%>
+    end
+
+    true
+  end
+<%- if phone_invitable? -%>
+
+  private
+
+  def sms_message(signed_id)
+    url = Rails.application.routes.url_helpers.<%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_url" : "accept_invitation_url" %>(
+      token: signed_id, **Rails.application.config.action_mailer.default_url_options)
+    "#{inviter.<%= principals.display.column %>} invited you to #{<%= identity.config_reference %>.app_name}: #{url}"
+  end
+<%- end -%>
+end

@@ -1,0 +1,41 @@
+namespace :authnz_eleven do
+<%- if identity.namespaced? -%>
+  namespace :<%= identity.task_namespace %> do
+<%- end -%>
+<%- if guestable? -%>
+  desc "Delete stale guest users (and their sessions) older than config.guest.ttl"
+  task delete_expired_guests: :environment do
+    scope = <%= identity.class_name %>.expired_guests
+
+    count = scope.count
+    scope.find_each(&:destroy)
+
+    puts "Deleted #{count} expired guest user(s)."
+  end
+<%- end -%>
+<%- if guestable? && timeoutable? -%>
+
+<%- end -%>
+<%- if pending_registration? -%>
+  desc "Delete sign-ups abandoned for longer than config.tokens.pending_registration"
+  task delete_expired_pending_registrations: :environment do
+    count = <%= identity.pending_registration_class %>.expired.destroy_all.size
+
+    puts "Deleted #{count} expired pending registration(s)."
+  end
+<%- end -%>
+<%- if pending_registration? && timeoutable? -%>
+
+<%- end -%>
+<%- if timeoutable? -%>
+  desc "Delete sessions that have timed out (idle past config.session.idle_timeout)"
+  task delete_timed_out_sessions: :environment do
+    count = <%= identity.session_class %>.timed_out.delete_all
+
+    puts "Deleted #{count} timed-out session(s)."
+  end
+<%- end -%>
+<%- if identity.namespaced? -%>
+  end
+<%- end -%>
+end

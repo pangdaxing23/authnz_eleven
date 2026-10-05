@@ -1,0 +1,75 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Settings</h1>
+
+<h2>Account</h2>
+
+<ul>
+<%- if email_changeable? -%>
+  <li><%%= link_to "Email address", edit_<%= identity.settings_helper_prefix %>_email_path %></li>
+<%- elsif principals.email -%>
+  <li>Email address: <%%= <%= identity.current_class %>.user.email %></li>
+<%- end -%>
+<%- if phone_changeable? -%>
+  <li><%%= link_to "Phone number", edit_<%= identity.settings_helper_prefix %>_phone_path %></li>
+<%- if phone_change_verification? -%>
+  <%% if <%= identity.current_class %>.user.pending_phone.present? %>
+    <li><%%= link_to "Verify your phone number", new_<%= identity.settings_helper_prefix %>_phone_verification_path %></li>
+  <%% end %>
+<%- end -%>
+<%- elsif principals.phone -%>
+  <li>Phone number: <%%= <%= identity.current_class %>.user.phone %></li>
+<%- end -%>
+<%- if password? -%>
+  <li><%%= link_to "Password", edit_<%= identity.settings_helper_prefix %>_password_path %></li>
+<%- end -%>
+<%- if invitable? -%>
+  <li><%%= link_to "Invite someone", new_<%= identity.settings_helper_prefix %>_invitation_path %></li>
+<%- end -%>
+  <li><%%= link_to "Delete your account", <%= identity.settings_helper_prefix %>_user_path %></li>
+</ul>
+
+<h2>Security</h2>
+
+<ul>
+<%- if passkey? -%>
+  <li><%%= link_to "Passkeys", <%= identity.settings_helper_prefix %>_passkeys_path %></li>
+<%- end -%>
+<%- if omniauth? -%>
+  <li><%%= link_to "Connected accounts", <%= identity.settings_helper_prefix %>_omniauth_identities_path %></li>
+<%- end -%>
+<%- if totp? -%>
+  <%% if <%= identity.current_class %>.user.totp_enrolled_at? %>
+    <li><%%= link_to "Authenticator app", new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path %></li>
+  <%% else %>
+    <li><%%= link_to "Set up an authenticator app", new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path %></li>
+  <%% end %>
+<%- end -%>
+<%- if sms_second_factor? -%>
+  <%% if <%= identity.current_class %>.user.sms_enrolled_at? %>
+    <li><%%= link_to "Two-factor authentication by text", new_<%= identity.settings_helper_prefix %>_mfa_sms_path %></li>
+  <%% else %>
+    <li><%%= link_to "Set up two-factor authentication by text", new_<%= identity.settings_helper_prefix %>_mfa_sms_path %></li>
+  <%% end %>
+<%- end -%>
+<%- if security_keys? -%>
+  <li><%%= link_to "Security keys", <%= identity.settings_helper_prefix %>_mfa_security_keys_path %></li>
+<%- end -%>
+<%- if second_factor? -%>
+  <%% if <%= identity.current_class %>.user.second_factor_enrolled? %>
+    <%% if <%= identity.current_class %>.user.recovery_codes.any? %>
+      <li><%%= link_to "Recovery codes", <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path %></li>
+    <%% else %>
+      <li><%%= link_to "Generate recovery codes", <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path %></li>
+    <%% end %>
+  <%% end %>
+<%- end -%>
+  <li><%%= link_to "Active sessions", <%= identity.settings_helper_prefix %>_sessions_path %></li>
+<%- if api_tokens? -%>
+  <li><%%= link_to "API tokens", <%= identity.settings_helper_prefix %>_api_tokens_path %></li>
+<%- end -%>
+<%- if trackable? -%>
+  <li><%%= link_to "Sign-in history", <%= identity.settings_helper_prefix %>_authentications_events_path %></li>
+<%- end -%>
+</ul>

@@ -1,0 +1,9 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Admin</h1>
+
+<p>
+  <%%= link_to "Users", <%= admin_helper("users_path") %> %> |
+  <%%= link_to "Sessions", <%= admin_helper("sessions_path") %> %>
+</p>

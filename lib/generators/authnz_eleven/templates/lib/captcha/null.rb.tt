@@ -1,0 +1,9 @@
+module Captcha
+  module Null
+    class << self
+      def verify(_token, ip: nil) = true
+
+      def site_key = nil
+    end
+  end
+end

@@ -1,0 +1,26 @@
+Description:
+    Generates authentication into your app. Only the features you pick are
+    generated, and the code is yours to change.
+
+    Pick at least one identifier (--email, --phone or --username) and one
+    sign-in method (--password, --magic-link, --sms-code, --passkey or
+    --omniauth).
+
+    Not sure which flags you want? The wizard will ask you:
+
+        bin/rails generate authnz_eleven:wizard
+
+    Settings live in config/initializers/authentication.rb.
+
+Examples:
+    bin/rails generate authnz_eleven --email --password
+
+    Passwordless:
+        bin/rails generate authnz_eleven --email --magic-link --passkey
+
+    GitHub-style:
+        bin/rails generate authnz_eleven --username --email --password \
+          --recoverable --passkey --second-factor=totp,webauthn --sudoable
+
+    A second, separate identity:
+        bin/rails generate authnz_eleven --user-class=Realtor --namespaced --email --password

@@ -1,0 +1,216 @@
+class <%= identity.pending_registration_class %> < ApplicationRecord
+  include <%= identity.principals_concern %>
+<%- if password? -%>
+  include <%= identity.password_policy_concern %>
+<%- end -%>
+<%- if sms? -%>
+  include <%= identity.class_name %>::SmsChallengeable
+<%- end -%>
+<%- if invitable? -%>
+
+  belongs_to :invitation<%= invite_only? ? "" : ", optional: true" %>
+<%- end -%>
+
+  Completion = Struct.new(:status, :user, :via)
+<%- if pre_account_passkey_enrollment? -%>
+
+  attr_accessor :passkey
+<%- end -%>
+
+<%- if email_gated_registration? -%>
+  generates_token_for :registration_email_verification, expires_in: <%= identity.config_reference %>.tokens.registration_email_verification do
+    [ email, email_verified_at ]
+  end
+<%- end -%>
+
+  scope :expired, -> { where(updated_at: ...<%= identity.config_reference %>.tokens.pending_registration.ago) }
+  scope :unexpired, -> { where(updated_at: <%= identity.config_reference %>.tokens.pending_registration.ago..) }
+<%- if pre_account_passkey_enrollment? -%>
+
+  before_validation on: :create do
+    self.webauthn_handle ||= WebAuthn.generate_user_id
+  end
+<%- end -%>
+<%- if invitable? && (email_verifiable? || phone_verifiable?) -%>
+
+  before_create :verify_invited_channel
+<%- end -%>
+<%- if principals.username -%>
+
+  validate :username_not_taken
+<%- end -%>
+<%- if guest_excused_from_phone? -%>
+
+  def guest? = false
+<%- end -%>
+<%- if password_nullable? && !password_blank_rows_all? -%>
+
+  def password_may_be_blank? = <%= staged_password_blank_rows_expression %>
+<%- end -%>
+
+  def next_step
+<%- if omniauth_registration? -%>
+    return :complete_profile if <%= omniauth_profile_missing_condition %>
+<%- end -%>
+<%- if email_verifiable? -%>
+    return :verify_email if email.present? && email_verified_at.blank?
+<%- end -%>
+<%- if phone_gated_registration? -%>
+    return :verify_phone if phone.present? && phone_verified_at.blank?
+<%- end -%>
+<%- if credential_staged_registration? -%>
+    return :enroll_credential unless sign_in_methods.any?
+<%- end -%>
+    :complete
+  end
+
+  def sign_in_methods
+    methods = []
+<%- if password? -%>
+    methods << :password if password_digest.present?
+<%- end -%>
+<%- if pre_account_passkey_enrollment? -%>
+    methods << :passkey if passkey
+<%- end -%>
+<%- if pending_registration_holds_provider? -%>
+    methods << :omniauth if provider.present?
+<%- end -%>
+<%- if magic_link? -%>
+    methods << :magic_link if email.present?<%= email_verifiable? ? " && email_verified_at.present?" : "" %>
+<%- end -%>
+<%- if sms_code? -%>
+    methods << :sms_code if phone.present?<%= phone_verifiable? ? " && phone_verified_at.present?" : "" %>
+<%- end -%>
+    methods
+  end
+
+  def complete
+    return Completion.new(:invalid) unless valid?
+
+    user = <%= identity.class_name %>.new(account_attributes)
+<%- if pre_account_passkey_enrollment? -%>
+    user.webauthn_credentials.build(**passkey, name: "Passkey"<%= factor_attr(:first_factor) %>) if passkey
+<%- end -%>
+<%- if pending_registration_holds_provider? -%>
+    user.omniauth_identities.build(provider:, uid:) if provider
+<%- end -%>
+
+    unless user.save
+      errors.merge!(user.errors)
+      return collision_result || Completion.new(:invalid)
+    end
+
+<%- if invitable? -%>
+    invitation&.accept(user)
+<%- end -%>
+    destroy!
+<%- if pending_registration_holds_provider? -%>
+    Completion.new(:created, user, provider ? <%= identity.omniauth_identity_class %>.via(provider) : :registration)
+<%- else -%>
+    Completion.new(:created, user, :registration)
+<%- end -%>
+  rescue ActiveRecord::RecordNotUnique
+    collision_result || raise
+  end
+<%- if email_gated_registration? -%>
+
+  def request_email_verification
+    touch # keeps :expired from reaping this while verification is in progress
+    return if <%= identity.class_name %>.exists?(email: email)
+
+    signed_id = generate_token_for(:registration_email_verification)
+    <%= identity.mailer_class %>.with(signed_id: signed_id, to: email).registration_email_verification.deliver_later
+  end
+<%- end -%>
+<%- if phone_gated_registration? -%>
+
+  def request_phone_verification
+    touch # keeps :expired from reaping this while verification is in progress
+    return if <%= identity.class_name %>.exists?(phone: phone)
+
+    issue_sms_challenge
+  end
+<%- end -%>
+
+  private
+<%- if invitable? && (email_verifiable? || phone_verifiable?) -%>
+
+  def verify_invited_channel
+    return unless invitation&.addressed_to?(self)
+
+<%- if multi_channel_invitable? && email_verifiable? && phone_verifiable? -%>
+    if invitation.email_addressed?
+      self.email_verified_at = Time.current
+<%- if principals.phone.optional? -%>
+      self.phone = nil
+<%- end -%>
+    else
+      self.phone_verified_at = Time.current
+<%- if principals.email.optional? -%>
+      self.email = nil
+<%- end -%>
+    end
+<%- elsif email_invitable? && email_verifiable? -%>
+    self.email_verified_at = Time.current
+<%- elsif phone_invitable? && phone_verifiable? -%>
+    self.phone_verified_at = Time.current
+<%- end -%>
+  end
+<%- end -%>
+
+  def account_attributes
+    attributes = {}
+<%- principals.each do |principal| -%>
+<%- if principal.type == :email && email_verifiable? -%>
+    attributes[:email] = email if email_verified_at.present?
+<%- elsif principal.type == :phone && phone_verifiable? -%>
+    attributes[:phone] = phone if phone_verified_at.present?
+<%- else -%>
+    attributes[:<%= principal.column %>] = <%= principal.column %>
+<%- end -%>
+<%- end -%>
+<%- if password? -%>
+    attributes[:password_digest] = password_digest
+<%- end -%>
+<%- if pre_account_passkey_enrollment? -%>
+    attributes[:webauthn_handle] = webauthn_handle
+<%- end -%>
+    attributes
+  end
+
+  def collision_result
+<%- if pending_registration_holds_provider? -%>
+    if provider.present? && <%= identity.omniauth_identity_class %>.exists?(provider:, uid:)
+      destroy!
+      return Completion.new(:taken)
+    end
+<%- end -%>
+<%- if principals.username -%>
+    if username.present? && <%= identity.class_name %>.where("LOWER(username) = ?", username.downcase).exists?
+      errors.add(:username, "has already been taken")
+      return Completion.new(:invalid)
+    end
+<%- end -%>
+<%- if principals.email -%>
+    if email.present? && <%= identity.class_name %>.exists?(email: email)
+      destroy!
+      return Completion.new(:taken)
+    end
+<%- end -%>
+<%- if principals.phone -%>
+    if <%= phone_verifiable? ? "phone_verified_at.present?" : "phone.present?" %> && <%= identity.class_name %>.exists?(phone: phone)
+      destroy!
+      return Completion.new(:taken)
+    end
+<%- end -%>
+    nil
+  end
+<%- if principals.username -%>
+
+  def username_not_taken
+    return if username.blank?
+
+    errors.add(:username, "has already been taken") if <%= identity.class_name %>.where("LOWER(username) = ?", username.downcase).exists?
+  end
+<%- end -%>
+end

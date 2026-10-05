@@ -1,0 +1,31 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.pending_registrations_table %><%= primary_key_options %> do |t|
+<%- principals.each do |principal| -%>
+      # Do not add principal uniqueness here: an unverified or abandoned claim must not reserve another person's identifier.
+      t.string   :<%= principal.column %>
+<%- end -%>
+<%- if password? -%>
+      t.string   :password_digest
+<%- end -%>
+<%- if email_verifiable? -%>
+      t.datetime :email_verified_at
+<%- end -%>
+<%- if phone_verifiable? -%>
+      t.datetime :phone_verified_at
+<%- end -%>
+<%- if pre_account_passkey_enrollment? -%>
+      t.string   :webauthn_handle
+<%- end -%>
+<%- if pending_registration_holds_provider? -%>
+      t.string   :provider
+      t.string   :uid
+<%- end -%>
+<%- if invitable? -%>
+      t.references :invitation, null: <%= !invite_only? %>, foreign_key: { to_table: :<%= identity.invitations_table %>, on_delete: :cascade }<%= reference_type_options %>
+<%- end -%>
+
+      t.timestamps
+    end
+  end
+end

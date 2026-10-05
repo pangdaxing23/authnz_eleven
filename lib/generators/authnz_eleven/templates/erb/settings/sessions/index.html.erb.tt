@@ -1,0 +1,29 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Your sessions</h1>
+
+<table>
+  <thead>
+    <tr><th>Device</th><th>Signed in with</th><th>IP address</th><th>Signed in</th><th></th></tr>
+  </thead>
+  <tbody>
+    <%% @sessions.each do |session| %>
+      <tr>
+        <td><%%= session.user_agent %></td>
+        <td><%%= session.via&.humanize %></td>
+        <td><%%= session.ip_address %></td>
+        <td><%%= session.created_at %></td>
+        <td>
+          <%% if session == <%= identity.current_class %>.session %>
+            This session
+          <%% else %>
+            <%%= button_to "Sign out", <%= identity.settings_helper_prefix %>_session_path(session), method: :delete %>
+          <%% end %>
+        </td>
+      </tr>
+    <%% end %>
+  </tbody>
+</table>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

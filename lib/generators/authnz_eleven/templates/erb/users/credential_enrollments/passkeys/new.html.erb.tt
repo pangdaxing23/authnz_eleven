@@ -1,0 +1,24 @@
+<p style="color: red"><%%= alert %></p>
+
+<h1>Create a passkey</h1>
+
+<p>Follow your browser's prompt to create a passkey with your device screen lock,
+a fingerprint, or a security key.</p>
+
+<%% if @registration.errors.any? %>
+  <ul style="color: red">
+    <%% @registration.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%%= form_with url: <%= identity.route_scope %>_registration_passkey_path, method: :post, data: { turbo: false } do |form| %>
+  <div data-controller="webauthn"
+       data-webauthn-challenge-url-value="<%%= <%= identity.route_scope %>_new_registration_passkey_path(format: :json) %>">
+    <%%= form.hidden_field :credential, data: { webauthn_target: "field" } %>
+    <%%= form.button "Create passkey", type: "button",
+          data: { webauthn_target: "button", action: "webauthn#createCredential" } %>
+    <p data-webauthn-target="error" style="color: red" hidden></p>
+  </div>
+<%% end %>

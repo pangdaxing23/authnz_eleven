@@ -1,0 +1,91 @@
+class <%= admin_module %>::UsersController < <%= admin_controller %>
+  before_action :set_user, only: %i[show destroy destroy_all_sessions<%= " reset_second_factor" if second_factor? %><%= " undeadbolt" if deadboltable? %><%= " ban unban" if bannable? %><%= " impersonate" if impersonatable? %>]
+  before_action :refuse_admin_target, only: %i[destroy<%= " reset_second_factor" if second_factor? %><%= " ban" if bannable? %><%= " impersonate" if impersonatable? %>]
+
+  def index
+    @users = <%= identity.class_name %>.order(:<%= principals.display.column %>)
+  end
+
+  def show
+    @sessions = @user.sessions.order(created_at: :desc)
+<%- if trackable? -%>
+    @events = @user.events.recent_first.limit(100)
+<%- end -%>
+  end
+
+  def destroy
+<%- if security_notifications? -%>
+    email = @user.email
+<%- end -%>
+    @user.destroy!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:account_deleted, to: email)
+<%- end -%>
+    redirect_to <%= admin_helper("users_path") %>, notice: "User deleted.", status: :see_other
+  end
+
+  def destroy_all_sessions
+    count = @user.sessions.count
+    @user.sessions.destroy_all
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:sessions_revoked_by_admin, to: @user.email)
+<%- end -%>
+    redirect_to <%= admin_helper("user_path") %>(@user), notice: "Ended #{count} session(s) for #{@user.<%= principals.display.column %>}.",
+      status: :see_other
+  end
+<%- if second_factor? -%>
+
+  def reset_second_factor
+    @user.reset_second_factor!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:second_factor_reset_by_admin, to: @user.email)
+<%- end -%>
+    redirect_to <%= admin_helper("user_path") %>(@user), notice: "Cleared every second factor on #{@user.<%= principals.display.column %>}'s account."
+  end
+<%- end -%>
+<%- if deadboltable? -%>
+
+  def undeadbolt
+    @user.undeadbolt!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:deadbolt_cleared_by_admin, to: @user.email)
+<%- end -%>
+    redirect_to <%= admin_helper("user_path") %>(@user), notice: "Cleared the sign-in deadbolt on #{@user.<%= principals.display.column %>}."
+  end
+<%- end -%>
+<%- if bannable? -%>
+
+  def ban
+    @user.ban!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:account_suspended, to: @user.email)
+<%- end -%>
+    redirect_to <%= admin_helper("user_path") %>(@user), notice: "Suspended #{@user.<%= principals.display.column %>} and ended their sessions."
+  end
+
+  def unban
+    @user.unban!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:account_restored, to: @user.email)
+<%- end -%>
+    redirect_to <%= admin_helper("user_path") %>(@user), notice: "Lifted the suspension on #{@user.<%= principals.display.column %>}."
+  end
+<%- end -%>
+<%- if impersonatable? -%>
+
+  def impersonate
+    impersonate_user(@user)
+    redirect_to <%= identity.nested_helper("root_path") %>
+  end
+<%- end -%>
+
+  private
+
+  def set_user
+    @user = <%= identity.class_name %>.find(params[:id])
+  end
+
+  def refuse_admin_target
+    redirect_to <%= admin_helper("users_path") %>, alert: "That isn't available for an admin account.", status: :see_other if @user.admin?
+  end
+end

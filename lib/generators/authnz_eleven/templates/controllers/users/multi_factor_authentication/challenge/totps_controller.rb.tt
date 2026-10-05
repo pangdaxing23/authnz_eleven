@@ -1,0 +1,42 @@
+class <%= identity.module_name %>::MultiFactorAuthentication::Challenge::TotpsController < <%= identity.controller_superclass %>
+  require_unauthenticated_access
+  rate_limit(**<%= identity.config_reference %>.rate_limits.totp_challenge, only: :create,
+    with: -> { redirect_to new_<%= identity.route_scope %>_mfa_challenge_totp_path, alert: "Too many attempts. Please try again later." })
+  before_action :set_user
+  before_action :require_totp_enrolled
+
+  def new
+  end
+
+  def create
+    totp = ROTP::TOTP.new(@user.totp_secret, issuer: <%= identity.config_reference %>.app_name)
+    used_at = totp.verify(params[:code], drift_behind: <%= identity.config_reference %>.second_factor.totp_drift_behind,
+      after: @user.totp_last_used_at)
+
+    if used_at
+      @user.update!(totp_last_used_at: Time.at(used_at))
+<%- if rememberable? -%>
+      start_new_session_for(@user, via: :second_factor, remember: session.delete(:<%= session_key(:remember_me) %>))
+<%- else -%>
+      start_new_session_for(@user, via: :second_factor)
+<%- end -%>
+      redirect_to after_authentication_url, status: :see_other
+    else
+      redirect_to new_<%= identity.route_scope %>_mfa_challenge_totp_path, alert: "That code is incorrect."
+    end
+  end
+
+  private
+
+  def set_user
+    @user = <%= identity.class_name %>.find_by_token_for!(:authentication_challenge, session[:<%= session_key(:challenge_token) %>])
+  rescue ActiveSupport::MessageVerifier::InvalidSignature, ActiveRecord::RecordNotFound
+    redirect_to <%= identity.route_scope %>_sign_in_path, alert: "Your sign-in challenge has expired. Please sign in again."
+  end
+
+  def require_totp_enrolled
+    return if @user.totp_enrolled_at?
+
+    redirect_to <%= identity.route_scope %>_sign_in_path, alert: "Please sign in again."
+  end
+end

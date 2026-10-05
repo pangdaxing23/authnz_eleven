@@ -1,0 +1,9 @@
+class AuthnzElevenDeferredJob < ApplicationJob
+  self.log_arguments = false
+
+  discard_on ActiveJob::DeserializationError
+
+  def perform(receiver, method, *args)
+    receiver.public_send(method, *args)
+  end
+end

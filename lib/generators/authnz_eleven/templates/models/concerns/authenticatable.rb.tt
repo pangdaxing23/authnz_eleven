@@ -1,0 +1,151 @@
+module <%= identity.class_name %>::Authenticatable
+  extend ActiveSupport::Concern
+
+  included do
+    has_many :sessions, dependent: :destroy
+<%- if api_tokens? -%>
+    has_many :api_tokens, dependent: :destroy
+<%- end -%>
+<%- if webauthn_credentials? -%>
+    has_many :webauthn_credentials, dependent: :destroy
+<%- end -%>
+<%- if omniauth? -%>
+    has_many :omniauth_identities, dependent: :destroy
+<%- end -%>
+<%- if webauthn_credentials? -%>
+
+    before_create do
+      self.webauthn_handle ||= WebAuthn.generate_user_id
+    end
+<%- end -%>
+<%- if password? -%>
+
+    scope :with_password, -> { where.not(password_digest: nil) }
+
+    after_update if: :password_digest_previously_changed? do
+      sessions.where.not(id: <%= identity.current_class %>.session).delete_all
+    end
+<%- if trackable? -%>
+
+    after_update if: :password_digest_previously_changed? do
+      record_event("<%= identity.singular %>.password_changed")
+    end
+<%- end -%>
+<%- end -%>
+  end
+<%- if multi_login? || password? || sms_code? -%>
+
+  class_methods do
+<%- if password? -%>
+    def authenticate_with_password(identifier, password)
+      identifier = identifier.to_s.strip
+<%- keys = principals.login_dispatch_principals -%>
+<%- if keys.size == 1 -%>
+      user = <%= keys.first.authenticate_lookup %>
+<%- else -%>
+      user =
+<%- keys.each_with_index do |principal, i| -%>
+<%- if i.zero? -%>
+        if <%= principal.login_dispatch_test %>
+<%- elsif i < keys.size - 1 -%>
+        elsif <%= principal.login_dispatch_test %>
+<%- else -%>
+        else
+<%- end -%>
+          <%= principal.authenticate_lookup %>
+<%- end -%>
+        end
+<%- end -%>
+
+<%- if deadboltable? -%>
+      user unless user&.deadbolted?
+<%- else -%>
+      user
+<%- end -%>
+    end
+<%- end -%>
+<%- if multi_login? && password? -%>
+
+<%- end -%>
+<%- if multi_login? -%>
+    def find_by_login(identifier)
+      identifier = identifier.to_s.strip
+<%- keys = principals.login_dispatch_principals -%>
+<%- keys.each_with_index do |principal, i| -%>
+<%- lookup = principal.find_by_login_lookup -%>
+<%- if i < keys.size - 1 -%>
+      return <%= lookup %> if <%= principal.login_dispatch_test %>
+<%- else -%>
+      <%= lookup %>
+<%- end -%>
+<%- end -%>
+    end
+<%- end -%>
+<%- if sms_code? -%>
+<%- if multi_login? || password? -%>
+
+<%- end -%>
+    def issue_sms_sign_in_code(phone)
+      find_by(phone:)&.tap(&:issue_sms_challenge)
+    end
+<%- end -%>
+  end
+<%- end -%>
+<%- if password_nullable? && !password_blank_rows_all? -%>
+
+  def password_may_be_blank? = <%= password_blank_rows_expression %>
+<%- end -%>
+<%- if removable_credentials? -%>
+
+  def sign_in_methods
+    methods = []
+<%- if password? -%>
+    methods << :password if password_set?
+<%- end -%>
+<%- if passkey? -%>
+    methods << :passkey if webauthn_credentials<%= ".passkeys" if passkey_and_security_keys? %>.any?
+<%- end -%>
+<%- if omniauth? -%>
+    methods << :omniauth if omniauth_identities.any?
+<%- end -%>
+<%- if magic_link? -%>
+    methods << :magic_link if email.present?
+<%- end -%>
+<%- if sms_code? -%>
+    methods << :sms_code if phone.present?
+<%- end -%>
+    methods
+  end
+
+  def last_sign_in_method?(kind)
+    return false if (sign_in_methods - [ kind ]).any?
+
+<%- if passkey? || omniauth? -%>
+    case kind
+<%- if passkey? -%>
+    when :passkey then webauthn_credentials<%= ".passkeys" if passkey_and_security_keys? %>.count <= 1
+<%- end -%>
+<%- if omniauth? -%>
+    when :omniauth then omniauth_identities.count <= 1
+<%- end -%>
+    else true
+    end
+<%- else -%>
+    true
+<%- end -%>
+  end
+<%- end -%>
+<%- if max_sessions_prompt? -%>
+
+  def within_session_limit?
+    limit = <%= identity.config_reference %>.session.concurrent_limit
+    limit.nil? || sessions.count <= limit
+  end
+<%- end -%>
+<%- if last_seenable? -%>
+
+  def mark_last_seen!
+    update_column(:last_seen_at, Time.current)
+  end
+<%- end -%>
+end

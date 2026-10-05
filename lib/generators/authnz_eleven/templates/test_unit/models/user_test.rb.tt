@@ -1,0 +1,145 @@
+require "test_helper"
+
+class <%= identity.class_name %>Test < ActiveSupport::TestCase
+<%- if principals.email -%>
+  test "malformed emails are rejected" do
+    user = build_<%= identity.singular %>(email: "person..name@example.com")
+    assert_not user.valid?
+    assert_includes user.errors[:email], "is invalid"
+  end
+<%- end -%>
+<%- if principals.email&.optional? -%>
+
+  test "email is optional" do
+    user = build_<%= identity.singular %>(email: nil)
+    assert user.valid?
+  end
+
+  test "a blank email normalizes to nil so the partial unique index applies" do
+    user = build_<%= identity.singular %>(email: "")
+    assert user.save
+    assert_nil user.reload.email
+  end
+
+  test "set emails are still unique (enforced by the DB index)" do
+    assert build_<%= identity.singular %>(email: "dup@example.com").save
+    assert_raises(ActiveRecord::RecordNotUnique) do
+      build_<%= identity.singular %>(email: "dup@example.com").save(validate: false)
+    end
+  end
+<%- end -%>
+<%- if principals.username -%>
+<%- if principals.email&.optional? -%>
+
+<%- end -%>
+  test "username is required" do
+    user = build_<%= identity.singular %>(username: nil)
+    assert_not user.valid?
+    assert_includes user.errors[:username], "can't be blank"
+  end
+
+  test "username uniqueness is honest and case-insensitive" do
+    taken = <%= identity.plural %>(:alice).username
+    user = build_<%= identity.singular %>(username: taken.upcase)
+    assert_not user.valid?
+    assert_includes user.errors[:username], "has already been taken"
+  end
+
+  test "forbidden usernames are rejected" do
+    user = build_<%= identity.singular %>(username: "admin")
+    assert_not user.valid?
+    assert_includes user.errors[:username], "is forbidden"
+  end
+
+  test "the chosen case is preserved on save" do
+    user = build_<%= identity.singular %>(username: "MixedCase")
+    assert user.save
+    assert_equal "MixedCase", user.reload.username
+  end
+
+  test "username uniqueness is also enforced by the DB index" do
+    taken = <%= identity.plural %>(:alice).username
+    assert_raises(ActiveRecord::RecordNotUnique) do
+      build_<%= identity.singular %>(username: taken.upcase).save(validate: false)
+    end
+  end
+<%- end -%>
+<%- if principals.phone -%>
+<%- if principals.email&.optional? || principals.username -%>
+
+<%- end -%>
+  test "a valid phone is accepted and normalized to E.164" do
+    user = build_<%= identity.singular %>(phone: "+1 415 826 4001")
+    assert user.save
+    assert_equal "+14158264001", user.reload.phone
+  end
+
+  test "a number typed without a country code is read in the default country" do
+    with_default_country("US") do
+      user = build_<%= identity.singular %>(phone: "(415) 826-4002")
+      assert user.save
+      assert_equal "+14158264002", user.reload.phone
+    end
+  end
+
+  test "a bare number that isn't valid in the default country is rejected, not reinterpreted" do
+    with_default_country("US") do
+      user = build_<%= identity.singular %>(phone: "6494461709")
+      assert_not user.valid?
+      assert_not_equal "+6494461709", user.phone, "must not be read as a New Zealand number"
+    end
+  end
+
+  test "an explicit country code overrides the default country" do
+    with_default_country("US") do
+      user = build_<%= identity.singular %>(phone: "+44 20 7183 8750")
+      assert user.save
+      assert_equal "+442071838750", user.reload.phone
+    end
+  end
+
+  test "an array of default countries is tried in order" do
+    with_default_country(%w[US GB]) do
+      user = build_<%= identity.singular %>(phone: "02071838750")
+      assert user.save
+      assert_equal "+442071838750", user.reload.phone
+    end
+  end
+<%- if principals.phone.required? -%>
+
+  test "phone is required" do
+    assert_not build_<%= identity.singular %>(phone: nil).valid?
+  end
+<%- else -%>
+
+  test "phone is optional" do
+    assert build_<%= identity.singular %>(phone: nil).valid?
+  end
+<%- end -%>
+
+  test "set phones are unique (enforced by the DB index)" do
+    assert build_<%= identity.singular %>(phone: "+14158264002").save
+    assert_raises(ActiveRecord::RecordNotUnique) do
+      build_<%= identity.singular %>(phone: "+14158264002").save(validate: false)
+    end
+  end
+<%- end -%>
+
+  private
+
+  def build_<%= identity.singular %>(**attrs)
+    defaults = <%= account_fixture_literal(indent: 4) %>
+    <%= identity.class_name %>.new(defaults.merge(attrs))
+  end
+<%- if principals.phone -%>
+
+  def with_default_country(country)
+    # Mutate and restore this OrderedOptions value because its method_missing reader cannot be stubbed reliably.
+    previous = <%= identity.config_reference %>.phone.default_country
+    <%= identity.config_reference %>.phone.default_country = country
+    yield
+  ensure
+    <%= identity.config_reference %>.phone.default_country = previous
+  end
+<%- end -%>
+end

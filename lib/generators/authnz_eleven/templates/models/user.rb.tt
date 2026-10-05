@@ -1,0 +1,59 @@
+class <%= identity.class_name %> < ApplicationRecord
+  include <%= identity.principals_concern %>
+  include Authenticatable
+<%- if password? -%>
+  include <%= identity.password_policy_concern %>
+<%- end -%>
+<%- if password_rotatable? -%>
+  include PasswordRotatable
+<%- end -%>
+<%- if password_historical? -%>
+  include PasswordHistorical
+<%- end -%>
+<%- if recoverable? -%>
+  include Recoverable
+<%- end -%>
+<%- if magic_link? -%>
+  include MagicLinkable
+<%- end -%>
+<%- if second_factor? -%>
+  include SecondFactor
+<%- end -%>
+<%- if deadboltable? -%>
+  include Deadboltable
+<%- end -%>
+<%- if bannable? -%>
+  include Bannable
+<%- end -%>
+<%- if sms? -%>
+  include SmsChallengeable
+<%- end -%>
+<%- if email_change_verification? -%>
+  include EmailVerifiable
+<%- end -%>
+<%- if phone_change_verification? -%>
+  include PhoneVerifiable
+<%- end -%>
+<%- if teams? -%>
+  include TeamMember
+<%- end -%>
+<%- if adminable? -%>
+  include Adminable
+<%- end -%>
+<%- if trackable? -%>
+  include Eventable
+<%- end -%>
+<%- if guestable? -%>
+  include Guestable
+<%- end -%>
+<%- if invitable? -%>
+  include Invitable
+<%- end -%>
+<%- unique_principals = principals.reject { |principal| principal.channel? && coy? } -%>
+<%- if unique_principals.any? -%>
+
+<%- unique_principals.each do |principal| -%>
+  validates :<%= principal.column %>, uniqueness: <%= principal.channel? ? "true, allow_nil: true" : "{ case_sensitive: false }" %>
+<%- end -%>
+<%- end -%>
+end

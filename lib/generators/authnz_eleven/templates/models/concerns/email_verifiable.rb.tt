@@ -1,0 +1,52 @@
+module <%= identity.class_name %>::EmailVerifiable
+  extend ActiveSupport::Concern
+
+  included do
+    normalizes :pending_email, with: -> { it.strip.downcase.presence }
+<%- if email_encrypted? -%>
+    encrypts :pending_email
+<%- end -%>
+    validates :pending_email, <%= principals.email.validation %>, allow_nil: true
+<%- unless coy? -%>
+    validate { errors.add(:pending_email, :taken) if pending_email_taken? }
+<%- end -%>
+
+    generates_token_for :email_change_verification, expires_in: <%= identity.config_reference %>.tokens.email_change_verification do
+      pending_email
+    end
+<%- if trackable? -%>
+
+    after_update if: :email_previously_changed? do
+      record_event("<%= identity.singular %>.email_changed")
+    end
+<%- end -%>
+  end
+
+  def stage_email(address)
+    self.pending_email = address
+
+    if pending_email.blank?
+      self.email = nil
+    elsif pending_email == email
+      self.pending_email = nil
+    end
+    self
+  end
+
+  def pending_email_taken?
+    pending_email.present? && <%= identity.class_name %>.exists?(email: pending_email)
+  end
+
+  def verify_pending_email
+    update(email: pending_email, pending_email: nil)
+  rescue ActiveRecord::RecordNotUnique
+    errors.add(:email, :taken)
+    false
+  end
+
+  def send_email_change_verification
+    return if pending_email.nil? || pending_email_taken?
+
+    <%= identity.mailer_class %>.with(signed_id: generate_token_for(:email_change_verification), to: pending_email).email_change_verification.deliver_later
+  end
+end

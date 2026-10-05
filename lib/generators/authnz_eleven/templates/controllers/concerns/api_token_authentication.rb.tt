@@ -1,0 +1,21 @@
+module <%= identity.nested_module("ApiTokenAuthentication") %>
+  extend ActiveSupport::Concern
+
+  included do
+    include ActionController::HttpAuthentication::Token::ControllerMethods
+    before_action :authenticate_api_token
+  end
+
+  private
+
+  attr_reader :current_api_token
+
+  def current_api_user
+    current_api_token.user
+  end
+
+  def authenticate_api_token
+    @current_api_token = authenticate_with_http_token { |secret, _| <%= identity.api_token_class %>.authenticate(secret) }
+    render json: { error: "Unauthorized" }, status: :unauthorized unless @current_api_token
+  end
+end

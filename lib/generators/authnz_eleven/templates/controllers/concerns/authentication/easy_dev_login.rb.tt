@@ -1,0 +1,47 @@
+module <%= identity.authentication_concern %>::EasyDevLogin
+  extend ActiveSupport::Concern
+<%- if second_factor? -%>
+
+  def self.mfa_required?
+    ENV["REQUIRE_DEV_MFA"].present?
+  end
+
+  def self.passwords_required?
+    ENV["REQUIRE_DEV_PASSWORD"].present? || mfa_required?
+  end
+<%- else -%>
+
+  def self.passwords_required?
+    ENV["REQUIRE_DEV_PASSWORD"].present?
+  end
+<%- end -%>
+
+  included do
+    raise "Authentication::EasyDevLogin must never load outside development" unless Rails.env.development?
+
+    prepend_before_action :easy_dev_login!
+<%- if admin_mfa_gate? -%>
+
+    skip_before_action :require_admin_mfa unless Authentication::EasyDevLogin.mfa_required?
+<%- end -%>
+  end
+
+  private
+
+  def easy_dev_login!
+    return if Authentication::EasyDevLogin.passwords_required?
+    return if find_session_by_cookie.present?
+
+    email = params[:<%= sign_in_field %>]
+    return if email.blank?
+
+    user = <%= find_by_login_expr("email") %>
+    unless user
+      Rails.logger.warn("[EASY_DEV_LOGIN] no user found for #{email.inspect}; skipping bypass")
+      return
+    end
+
+    Rails.logger.warn("[EASY_DEV_LOGIN] signing in as #{user.<%= principals.display.column %>} (id=#{user.id}). Password bypass is active.")
+    <%= sign_in_call("user", via: :easy_dev_login, may_challenge: false) %>
+  end
+end

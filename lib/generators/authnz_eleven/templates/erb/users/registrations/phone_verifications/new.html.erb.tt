@@ -1,0 +1,46 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Confirm your phone</h1>
+
+<p>
+  Enter the six-digit code we texted you to finish creating your account.
+</p>
+
+<%#- The number is deliberately NOT echoed here. Sign-up answers identically
+      whether or not the submitted number was already registered, and printing
+      it back would undo that. -%>
+
+<%- if principals.username -%>
+<%% if @registration.errors.any? %>
+  <ul style="color: red">
+    <%% @registration.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%- end -%>
+<%%= form_with url: <%= identity.route_scope %>_verify_phone_path, method: :patch do |form| %>
+<%- if principals.username -%>
+  <%%# Username may have been taken in between time the registration was made and the phone was verified. %>
+  <%% if @registration.errors.any? %>
+    <div>
+      <%%= form.label :username %><br>
+      <%%= form.text_field :username, value: @registration.username, required: true, autocomplete: "username" %>
+    </div>
+  <%% else %>
+    <%%= form.hidden_field :username, value: @registration.username %>
+  <%% end %>
+
+<%- end -%>
+  <div>
+    <%%= form.label :code, "Verification code" %><br>
+    <%%= form.text_field :code, required: true, autocomplete: "one-time-code",
+          inputmode: "numeric", pattern: "[0-9]*", autofocus: true %>
+  </div>
+
+  <div><%%= form.submit "Confirm phone" %></div>
+<%% end %>
+
+<%%= button_to "Send me another code", <%= identity.route_scope %>_verify_phone_path, method: :post %>

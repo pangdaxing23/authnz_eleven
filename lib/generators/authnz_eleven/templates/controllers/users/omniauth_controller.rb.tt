@@ -1,0 +1,139 @@
+class <%= identity.module_name %>::OmniauthController < <%= identity.controller_superclass %>
+<%- if pending_registration_holds_provider? -%>
+  include <%= identity.authentication_concern %>::Registering
+
+<%- end -%>
+  allow_unauthenticated_access
+  skip_before_action :verify_authenticity_token
+
+  def create
+    identity = <%= identity.omniauth_identity_class %>.find_by(provider: omniauth.provider, uid: omniauth.uid)
+
+    return link_identity(identity) if authenticated?
+    return sign_in(identity) if identity
+<%- if pre_account_provider_enrollment? -%>
+    return complete_pending_registration if request.env.dig("omniauth.params", "registration_intent")
+<%- end -%>
+
+    register
+  end
+
+  def failure
+    redirect_to <%= identity.route_scope %>_sign_in_path, alert: params[:message]
+  end
+
+  private
+
+  def sign_in(identity)
+    user = identity.<%= identity.singular %>
+    <%= sign_in_call("user", via: "identity.via") %>
+    redirect_to after_authentication_url, status: :see_other
+  end
+<%- if pre_account_provider_enrollment? -%>
+
+  def complete_pending_registration
+    @registration = <%= identity.pending_registration_class %>.unexpired.find_by(id: session[:<%= pending_registration_session_key %>])
+    unless @registration
+      return redirect_to <%= identity.route_scope %>_sign_up_path, alert: "That sign-up has expired. Please start again."
+    end
+
+    @registration.update!(provider: omniauth.provider, uid: omniauth.uid)
+    advance(@registration)
+  end
+
+  def render_invalid_registration
+    redirect_to <%= credential_enrollment_path %>, alert: @registration.errors.full_messages.to_sentence
+  end
+<%- end -%>
+
+  def link_identity(existing)
+    if existing && existing.<%= identity.foreign_key %> != <%= identity.current_class %>.user.id
+      return redirect_to <%= identity.settings_helper_prefix %>_omniauth_identities_path,
+        alert: "That #{provider_name} account is already linked to another account."
+    end
+
+    if existing
+      return redirect_to <%= identity.settings_helper_prefix %>_omniauth_identities_path,
+        notice: "That account is already linked."
+    end
+
+    <%= identity.current_class %>.user.omniauth_identities.create!(provider: omniauth.provider, uid: omniauth.uid)
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:connected_account_linked)
+<%- end -%>
+    redirect_to <%= identity.settings_helper_prefix %>_omniauth_identities_path, notice: "Linked.", status: :see_other
+  end
+
+<%- if email_verifiable? -%>
+  # A provider's email address is taken as verified. Nothing reverifies it.
+<%- end -%>
+  def register
+<%- if principals.email&.required? -%>
+    return redirect_to <%= identity.route_scope %>_sign_in_path, alert: no_address_alert if omniauth.info.email.blank?
+
+<%- end -%>
+<%- if invite_only? -%>
+    unless pending_invitation_for(omniauth.info.email)
+      return redirect_to <%= identity.route_scope %>_sign_in_path, alert: "Registration is invite-only."
+    end
+
+<%- end -%>
+<%- if omniauth_registration? -%>
+    registration = <%= identity.pending_registration_class %>.new(provider: omniauth.provider, uid: omniauth.uid<%= ", email: omniauth.info.email" if principals.email %>)
+<%- if email_verifiable? -%>
+    registration.email_verified_at = Time.current if registration.email.present?
+<%- end -%>
+<%- if invitable? -%>
+    registration.invitation = pending_invitation_for(omniauth.info.email)
+<%- end -%>
+    registration.save!(validate: false)
+    session[:<%= pending_registration_session_key %>] = registration.id
+
+    advance(registration)
+<%- else -%>
+    # Do not look up an account by the provider-reported email: it is a claim and could link an attacker to another account.
+    user = <%= identity.class_name %>.new<%= "(email: omniauth.info.email)" if principals.email %>
+    user.omniauth_identities.build(provider: omniauth.provider, uid: omniauth.uid)
+
+    case save_account(user)
+    when :ok
+<%- if invitable? -%>
+      pending_invitation_for(omniauth.info.email)&.accept(user)
+<%- end -%>
+      <%= sign_in_call("user", via: "provider_via") %>
+      redirect_to after_authentication_url, status: :see_other
+    when :taken
+      redirect_to <%= identity.route_scope %>_sign_in_path, alert: taken_alert
+    else
+      redirect_to <%= identity.route_scope %>_sign_in_path, alert: no_address_alert
+    end
+<%- end -%>
+  end
+<%- if !omniauth_registration? -%>
+
+  def save_account(user)
+    return :ok if user.save
+
+    user.errors.of_kind?(:email, :taken) ? :taken : :invalid
+  rescue ActiveRecord::RecordNotUnique
+    :taken
+  end
+
+  def taken_alert
+    "An account already uses that email address. Sign in, then link #{provider_name} from your settings."
+  end
+<%- end -%>
+<%- if !omniauth_registration? || principals.email&.required? -%>
+
+  def no_address_alert
+    "That provider didn't share an email address, try signing up another way."
+  end
+<%- end -%>
+
+  def provider_via = <%= identity.omniauth_identity_class %>.via(omniauth.provider)
+  def provider_name = provider_via.to_s.titleize
+
+  def omniauth
+    request.env["omniauth.auth"]
+  end
+end

@@ -1,0 +1,27 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1>Sessions</h1>
+
+<%% if @filtered_user %>
+  <p>Filtered to <%%= @filtered_user.<%= principals.display.column %> %>. <%%= link_to "Clear", <%= admin_helper("sessions_path") %> %></p>
+<%% end %>
+
+<table>
+  <thead>
+    <tr><th>User</th><%- if session_carries_team? -%><th>Team</th><%- end -%><th>Via</th><th>IP</th><th>Created</th><th></th></tr>
+  </thead>
+  <tbody>
+    <%% @sessions.each do |session| %>
+      <tr>
+        <td><%%= link_to session.<%= identity.singular %>.<%= principals.display.column %>, <%= admin_helper("user_path") %>(session.<%= identity.singular %>) %></td>
+<%- if session_carries_team? -%>
+        <td><%%= session.team&.name %></td>
+<%- end -%>
+        <td><%%= session.via&.humanize %></td>
+        <td><%%= session.ip_address %></td>
+        <td><%%= session.created_at %></td>
+        <td><%%= button_to "End", <%= admin_helper("session_path") %>(session), method: :delete %></td>
+      </tr>
+    <%% end %>
+  </tbody>
+</table>

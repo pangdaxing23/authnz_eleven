@@ -1,0 +1,24 @@
+<nav>
+<%- if impersonatable? -%>
+  <%% if impersonating? %>
+    <span>Impersonating <%%= <%= principals.display_expression("#{identity.current_class}.user") %> %>.</span>
+    <%%= button_to "Stop impersonating", <%= identity.nested_helper("impersonation_path") %>, method: :delete %>
+  <%% end %>
+<%- end -%>
+  <%% if authenticated? %>
+    <span><%- if teams? -%><%% if <%= identity.current_class %>.team %><%%= <%= identity.current_class %>.team.name %>/<%% end %><%- end -%><%%= <%= principals.display_expression("#{identity.current_class}.user") %> %></span>
+    <%%= link_to "Settings", <%= identity.settings_helper_prefix %>_path %>
+<%- if teams? -%>
+    <%%= link_to "Teams", <%= identity.nested_helper("teams_path") %> %>
+<%- end -%>
+<%- if admin_dashboard? -%>
+    <%% if <%= identity.current_class %>.user.admin? %><%%= link_to "Admin", <%= admin_helper("root_path") %> %><%% end %>
+<%- end -%>
+    <%%= button_to "Sign out", <%= identity.route_scope %>_sign_out_path, method: :delete %>
+  <%% else %>
+    <%%= link_to "Sign in", <%= identity.route_scope %>_sign_in_path %>
+<%- if typed_registration? -%>
+    <%%= link_to "Sign up", <%= identity.route_scope %>_sign_up_path %>
+<%- end -%>
+  <%% end %>
+</nav>

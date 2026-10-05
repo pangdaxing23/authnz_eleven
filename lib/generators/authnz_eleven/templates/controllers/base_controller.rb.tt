@@ -1,0 +1,11 @@
+class <%= identity.base_controller %> < ActionController::Base
+  include <%= identity.authentication_concern %>
+<%- if authorization? -%>
+  include <%= identity.authorization_concern %>
+<%- end -%>
+<%- if captchable? -%>
+  include Captchable
+<%- end -%>
+
+  layout "<%= identity.controller_module %>"
+end

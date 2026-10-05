@@ -1,0 +1,53 @@
+class <%= identity.module_name %>::Registrations::EmailVerificationsController < <%= identity.controller_superclass %>
+  include <%= identity.authentication_concern %>::Registering
+
+  allow_unauthenticated_access
+  rate_limit(**<%= identity.config_reference %>.rate_limits.email_verification, only: :create,
+    with: -> { redirect_to <%= identity.route_scope %>_new_verify_email_path, alert: "Too many links requested. Please try again later." })
+  before_action :set_pending_registration, only: [ :new, :create ]
+  before_action :set_claimed_registration, only: [ :show, :update ]
+
+  def new
+  end
+
+  def create
+    <%= deferred_call("@registration", :request_email_verification) %>
+    redirect_to <%= identity.route_scope %>_new_verify_email_path, notice: "We sent you another link."
+  end
+
+  def show
+  end
+
+  def update
+<%- if principals.username -%>
+    @registration.username = params[:username] if params[:username]
+<%- end -%>
+    @registration.email_verified_at = Time.current
+    return render :show, status: :unprocessable_entity unless @registration.save
+
+    advance(@registration)
+  end
+
+  private
+
+  def set_pending_registration
+    @registration = <%= identity.pending_registration_class %>.unexpired.find_by(id: session[:<%= pending_registration_session_key %>])
+    redirect_to <%= registration_entry_path %> unless @registration
+  end
+
+  def set_claimed_registration
+    @registration = <%= identity.pending_registration_class %>.unexpired.find_by_token_for(
+      :registration_email_verification, params.expect(:sid)
+    )
+
+    redirect_to_rejection unless @registration && session[:<%= pending_registration_session_key %>] == @registration.id
+  end
+
+  def render_invalid_registration
+    render :show, status: :unprocessable_entity
+  end
+
+  def redirect_to_rejection
+    redirect_to <%= registration_entry_path %>, alert: "That confirmation link is invalid or has expired."
+  end
+end

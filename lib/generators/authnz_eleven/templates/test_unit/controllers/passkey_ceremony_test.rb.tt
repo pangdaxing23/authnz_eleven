@@ -1,0 +1,126 @@
+require "test_helper"
+require "webauthn/fake_client"
+
+class <%= identity.module_name %>::PasskeyCeremonyTest < ActionDispatch::IntegrationTest
+  setup do
+    @user = <%= identity.plural %>(:bob)
+    @authenticator = WebAuthn::FakeAuthenticator.new
+    @client = WebAuthn::FakeClient.new(
+      WebAuthn.configuration.allowed_origins.first,
+      authenticator: @authenticator
+    )
+  end
+
+  test "passkey enrollment requires user verification" do
+    sign_in @user
+
+    assert_no_difference -> { @user.webauthn_credentials.count } do
+      enroll_passkey(user_verified: false)
+    end
+    assert_response :unprocessable_entity
+  end
+
+  test "a verified passkey enrolls and signs in" do
+    sign_in @user
+    assert_difference -> { @user.webauthn_credentials.count }, 1 do
+      enroll_passkey(user_verified: true)
+    end
+    assert_response :created
+
+    sign_out
+    assert_difference -> { @user.sessions.count }, 1 do
+      sign_in_with_passkey(user_verified: true)
+    end
+    assert_response :created
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+
+  test "a replayed passkey assertion is refused, not an error" do
+    sign_in @user
+    enroll_passkey(user_verified: true)
+    sign_out
+
+    credential = sign_in_with_passkey(user_verified: true)
+    assert_response :created
+    sign_out
+
+    assert_no_difference -> { @user.sessions.count } do
+      post <%= identity.route_scope %>_passkeys_session_path, params: { credential: credential }, as: :json
+    end
+    assert_response :unprocessable_entity
+  end
+
+  test "passkey sign-in requires user verification" do
+    sign_in @user
+    enroll_passkey(user_verified: true)
+    sign_out
+
+    assert_no_difference -> { @user.sessions.count } do
+      sign_in_with_passkey(user_verified: false)
+    end
+    assert_response :unprocessable_entity
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+<%- if sudoable? -%>
+
+  test "a passkey satisfies the sudo challenge on a guarded action" do
+    sign_in @user
+    enroll_passkey(user_verified: true)
+
+    assert_no_difference -> { <%= identity.class_name %>.count }, "no assertion, no deletion" do
+      delete <%= identity.settings_helper_prefix %>_user_path, params: { confirmation: "DELETE ACCOUNT" }
+    end
+
+    assert_difference -> { <%= identity.class_name %>.count }, -1 do
+      delete <%= identity.settings_helper_prefix %>_user_path,
+        params: { confirmation: "DELETE ACCOUNT", sudo_credential: <%= identity.route_scope %>_sudo_assertion }
+    end
+  end
+<%- end -%>
+
+  private
+
+  def clear_sudo_bar
+<%= test_clear_sudo_body %>
+  end
+
+  def enroll_passkey(user_verified:)
+    clear_sudo_bar
+    get new_<%= identity.settings_helper_prefix %>_passkey_path, as: :json
+    credential = @client.create(
+      challenge: response.parsed_body.fetch("challenge"),
+      rp_id: WebAuthn.configuration.rp_id,
+      user_verified: user_verified
+    )
+
+    post <%= identity.settings_helper_prefix %>_passkeys_path,
+      params: { credential: credential }, as: :json
+  end
+
+  def sign_in_with_passkey(user_verified:)
+    get new_<%= identity.route_scope %>_passkeys_session_path, as: :json
+    credential = @client.get(
+      challenge: response.parsed_body.fetch("challenge"),
+      rp_id: WebAuthn.configuration.rp_id,
+      user_handle: @user.webauthn_handle,
+      user_verified: user_verified
+    )
+
+    post <%= identity.route_scope %>_passkeys_session_path,
+      params: { credential: credential }, as: :json
+    credential
+  end
+
+  def sign_in(user)
+    record = user.sessions.create!
+    env = Rails.application.env_config.merge("HTTP_HOST" => "www.example.com")
+    jar = ActionDispatch::Request.new(env).cookie_jar
+    jar.signed[:<%= identity.cookie_name %>] = record.id
+    cookies[:<%= identity.cookie_name %>] = jar[:<%= identity.cookie_name %>]
+  end
+
+  def sign_out
+    delete <%= identity.route_scope %>_sign_out_path
+  end
+end

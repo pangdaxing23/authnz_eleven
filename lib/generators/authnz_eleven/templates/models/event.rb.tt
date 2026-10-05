@@ -1,0 +1,32 @@
+class <%= identity.event_class %> < ApplicationRecord
+  belongs_to :subject, polymorphic: true
+  belongs_to :actor, polymorphic: true, optional: true
+  belongs_to :context, polymorphic: true, optional: true
+
+  scope :chronological, -> { order(occurred_at: :asc, id: :asc) }
+  scope :recent_first, -> { order(occurred_at: :desc, id: :desc) }
+
+  def self.record!(
+    event_type:,
+    subject:,
+    actor: nil,
+    context: nil,
+    occurred_at: nil,
+    data: nil,
+    ip_address: nil,
+    user_agent: nil,
+    request_id: nil
+  )
+    create!(
+      event_type: event_type,
+      subject: subject,
+      actor: actor || <%= identity.current_class %>.user,
+      context: context || subject.try(:event_context) || subject,
+      occurred_at: occurred_at || Time.current,
+      data: data || {},
+      ip_address: ip_address || <%= identity.current_class %>.ip_address,
+      user_agent: user_agent || <%= identity.current_class %>.user_agent,
+      request_id: request_id || <%= identity.current_class %>.request_id
+    )
+  end
+end

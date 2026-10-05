@@ -1,0 +1,57 @@
+require "test_helper"
+
+class <%= identity.settings_module %>::OmniauthIdentitiesControllerTest < ActionDispatch::IntegrationTest
+  setup do
+    @user = <%= identity.plural %>(:bob)
+    @identity = @user.omniauth_identities.create!(provider: "developer", uid: "bobs-login")
+    @other = <%= identity.plural %>(:alice).omniauth_identities.create!(provider: "developer", uid: "someone-elses-login")
+  end
+
+  test "the page lists your connected accounts and nobody else's" do
+    sign_in_as @user
+    get <%= identity.settings_helper_prefix %>_omniauth_identities_path
+
+    assert_response :success
+    assert_match "Developer", response.body
+  end
+
+  test "a connected account may only be unlinked when another way in survives" do
+    sign_in_as @user
+
+    if @user.last_sign_in_method?(:omniauth)
+      assert_no_difference -> { @user.omniauth_identities.count } do
+        delete <%= identity.settings_helper_prefix %>_omniauth_identity_path(@identity)
+      end
+      assert_match "only way into your account", flash[:alert].to_s
+    else
+      assert_difference -> { @user.omniauth_identities.count }, -1 do
+        delete <%= identity.settings_helper_prefix %>_omniauth_identity_path(@identity)
+      end
+    end
+    assert_redirected_to <%= identity.settings_helper_prefix %>_omniauth_identities_path
+  end
+
+  test "a connected account can be unlinked once another one exists" do
+    spare = @user.omniauth_identities.create!(provider: "developer", uid: "a-spare-login")
+    sign_in_as @user
+
+    assert_difference -> { @user.omniauth_identities.count }, -1 do
+      delete <%= identity.settings_helper_prefix %>_omniauth_identity_path(spare)
+    end
+  end
+
+  test "you cannot unlink somebody else's connected account" do
+    sign_in_as @user
+
+    assert_no_difference -> { <%= identity.omniauth_identity_class %>.count } do
+      delete <%= identity.settings_helper_prefix %>_omniauth_identity_path(@other)
+    end
+    assert_response :not_found
+  end
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

@@ -1,0 +1,36 @@
+class <%= identity.module_name %>::CredentialEnrollments::PasskeysController < <%= identity.controller_superclass %>
+  include <%= identity.authentication_concern %>::Registering
+
+  require_unauthenticated_access
+  rate_limit(**<%= identity.config_reference %>.rate_limits.sign_up, only: :create,
+    with: -> { redirect_to <%= identity.route_scope %>_new_registration_passkey_path, alert: "Too many attempts. Please try again later." })
+  before_action :set_registration
+
+  def new
+    respond_to do |format|
+      format.html
+      format.json do
+        options = WebAuthn::Credential.options_for_create(
+          user: { id: @registration.webauthn_handle, name: @registration.<%= principals.display.column %> },
+          authenticator_selection: { resident_key: "required", user_verification: "required" }
+        )
+        issue_webauthn_challenge(options)
+      end
+    end
+  end
+
+  def create
+    @registration.passkey = verify_webauthn_registration(JSON.parse(params[:credential].to_s), user_verification: true)
+    advance(@registration)
+  rescue WebAuthn::Error, JSON::ParserError
+    flash.now[:alert] = "We couldn't add that passkey. Please try again."
+    render :new, status: :unprocessable_entity
+  end
+
+  private
+
+  def set_registration
+    @registration = <%= identity.pending_registration_class %>.unexpired.find_by(id: session[:<%= pending_registration_session_key %>])
+    redirect_to <%= registration_entry_path %> unless @registration
+  end
+end

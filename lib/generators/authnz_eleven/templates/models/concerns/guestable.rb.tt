@@ -1,0 +1,30 @@
+module <%= identity.class_name %>::Guestable
+  extend ActiveSupport::Concern
+
+  included do
+    scope :guests, -> { where(guest: true) }
+
+    scope :expired_guests, -> { guests.where(created_at: ...<%= identity.config_reference %>.guest.ttl.ago) }
+  end
+
+  class_methods do
+    def create_guest!
+      create! do |user|
+<%- if principals.email -%>
+        user.email = "guest_#{SecureRandom.uuid}@example.com"
+<%- end -%>
+<%- if principals.username -%>
+        user.username = "guest_#{SecureRandom.base58(12)}"
+<%- end -%>
+        user.guest = true
+      end
+    end
+  end
+
+  def absorb_guest(guest)
+    transaction do
+      # Extension point: move any guest-owned state onto this account before the guest row goes.
+      guest.destroy
+    end
+  end
+end

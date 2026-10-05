@@ -1,0 +1,39 @@
+require "net/http"
+
+module Captcha
+  module Turnstile
+    VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify".freeze
+
+    class << self
+      def verify(token, ip: nil)
+        return false if token.blank?
+
+        response = Net::HTTP.post_form(URI(VERIFY_URL), {
+          "secret" => secret_key,
+          "response" => token,
+          "remoteip" => ip
+        }.compact)
+        response.is_a?(Net::HTTPSuccess) && JSON.parse(response.body)["success"] == true
+      rescue => e
+        Rails.logger.error("[captcha] Turnstile verification error: #{e.class}: #{e.message}")
+        false
+      end
+
+      def site_key
+        ENV["TURNSTILE_SITE_KEY"] || Rails.application.credentials.dig(:turnstile, :site_key) || test_key("1x00000000000000000000AA")
+      end
+
+      def secret_key
+        ENV["TURNSTILE_SECRET_KEY"] || Rails.application.credentials.dig(:turnstile, :secret_key) || test_key("1x0000000000000000000000000000000AA")
+      end
+
+      private
+
+      def test_key(key)
+        raise "Set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY (or turnstile.site_key / turnstile.secret_key in credentials)" unless Rails.env.local?
+
+        key
+      end
+    end
+  end
+end

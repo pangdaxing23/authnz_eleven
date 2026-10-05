@@ -1,0 +1,22 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Sign in with a code</h1>
+
+<p>Enter your phone number and we'll text you a six-digit code to sign in with.</p>
+
+<%%= form_with url: <%= identity.route_scope %>_sms_sign_in_path, method: :post<%= captcha_form_options %> do |form| %>
+  <div>
+    <%%= form.label :phone, "Phone number" %><br>
+    <%%= form.telephone_field :phone, required: true, autofocus: true, autocomplete: "tel" %>
+  </div>
+
+<%- if captchable? -%>
+
+  <%%= render "shared/captcha" %>
+<%- end -%>
+
+  <div><%%= form.submit "Text me a code" %></div>
+<%% end %>
+
+<p><%%= link_to "Back to sign in", <%= identity.route_scope %>_sign_in_path %></p>

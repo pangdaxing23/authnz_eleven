@@ -1,0 +1,28 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Connected accounts</h1>
+
+<%% if @omniauth_identities.any? %>
+  <ul>
+    <%% @omniauth_identities.each do |omniauth_identity| %>
+      <li>
+        <%%= omniauth_identity.provider_name %>
+        <small>linked <%%= omniauth_identity.created_at.to_date %></small>
+        <%%= button_to "Unlink", <%= identity.settings_helper_prefix %>_omniauth_identity_path(omniauth_identity), method: :delete %>
+      </li>
+    <%% end %>
+  </ul>
+<%% else %>
+  <p>No connected accounts yet.</p>
+<%% end %>
+
+<%%# Add one connection button per configured provider above this development-only example. %>
+<%% if Rails.env.development? %>
+<fieldset style="color: gray; margin-top: 1em;">
+  <legend><em>Development</em></legend>
+  <%%= button_to "Connect Developer", "<%= omniauth_path_prefix %>/developer", data: {turbo: false} %>
+</fieldset>
+<%% end %>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

@@ -1,0 +1,146 @@
+require "test_helper"
+
+class <%= identity.settings_module %>::PhoneVerificationsControllerTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+
+  NEW_NUMBER = "+14158264010".freeze
+
+  setup do
+    @user = <%= identity.plural %>(:bob)
+    @original = @user.phone
+    sign_in_as @user
+  end
+
+  test "requesting a change texts the new number but does not adopt it yet" do
+    request_change_to NEW_NUMBER
+
+    assert_equal @original, @user.reload.phone, "the number must not move until it's verified"
+    assert_equal NEW_NUMBER, @user.pending_phone
+    assert @user.sms_challenge?(to: NEW_NUMBER)
+    assert_redirected_to new_<%= identity.settings_helper_prefix %>_phone_verification_path
+  end
+
+  test "confirming the code adopts the new number" do
+    request_change_to NEW_NUMBER
+
+    patch <%= identity.settings_helper_prefix %>_phone_verification_path, params: { code: issued_code }
+
+    assert_equal NEW_NUMBER, @user.reload.phone
+    assert_nil @user.pending_phone
+    assert_not @user.sms_challenge?(to: NEW_NUMBER), "a redeemed code must not survive"
+    assert_redirected_to <%= identity.settings_helper_prefix %>_path
+  end
+
+  test "a wrong code leaves the old number in place" do
+    request_change_to NEW_NUMBER
+
+    patch <%= identity.settings_helper_prefix %>_phone_verification_path, params: { code: "000000" }
+
+    assert_equal @original, @user.reload.phone
+    assert_equal NEW_NUMBER, @user.pending_phone
+    assert_response :unprocessable_entity
+  end
+
+  test "a re-send goes to the pending number, not the one on file" do
+    request_change_to NEW_NUMBER
+    post <%= identity.settings_helper_prefix %>_phone_verification_path
+
+    assert_equal NEW_NUMBER, texted_numbers.last
+  end
+
+<%- if coy? -%>
+  test "requesting a number that belongs to someone else is answered identically and texts no one" do
+    taken = <%= identity.plural %>(:alice).phone
+
+    assert_no_enqueued_jobs(only: SmsDeliveryJob) do
+      request_change_to taken
+    end
+    assert_equal @original, @user.reload.phone
+    assert_equal taken, @user.pending_phone
+    taken_status, taken_location = response.status, response.location
+    follow_redirect!
+    taken_body = response.body.gsub(taken, "SUBMITTED")
+
+    request_change_to NEW_NUMBER
+    assert_equal taken_status, response.status
+    assert_equal taken_location, response.location
+    follow_redirect!
+    assert_equal taken_body, response.body.gsub(NEW_NUMBER, "SUBMITTED"),
+      "a taken number and a free one must leave the same page behind, not just the same redirect"
+
+    get <%= identity.settings_helper_prefix %>_path
+    assert_select "a[href=?]", new_<%= identity.settings_helper_prefix %>_phone_verification_path
+  end
+
+  test "a re-send after a rejected number texts nobody" do
+    request_change_to <%= identity.plural %>(:alice).phone
+
+    assert_no_enqueued_jobs(only: SmsDeliveryJob) do
+      post <%= identity.settings_helper_prefix %>_phone_verification_path
+    end
+  end
+<%- else -%>
+  test "requesting a number that belongs to someone else is refused" do
+    assert_no_enqueued_jobs(only: SmsDeliveryJob) do
+      request_change_to <%= identity.plural %>(:alice).phone
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal @original, @user.reload.phone
+  end
+<%- end -%>
+
+  test "too many wrong guesses destroy the code" do
+    request_change_to NEW_NUMBER
+    code = issued_code
+
+    (<%= identity.config_reference %>.sms.max_attempts + 1).times do
+      patch <%= identity.settings_helper_prefix %>_phone_verification_path, params: { code: "000000" }
+    end
+    patch <%= identity.settings_helper_prefix %>_phone_verification_path, params: { code: code }
+
+    assert_equal @original, @user.reload.phone, "the real code must stop working once the cap is hit"
+    assert_equal NEW_NUMBER, @user.pending_phone
+  end
+
+  test "an expired code is refused" do
+    request_change_to NEW_NUMBER
+    code = issued_code
+    travel <%= identity.config_reference %>.tokens.sms_code + 1.minute
+
+    patch <%= identity.settings_helper_prefix %>_phone_verification_path, params: { code: code }
+
+    assert_equal @original, @user.reload.phone
+    assert_equal NEW_NUMBER, @user.pending_phone
+  end
+<%- if principals.phone.optional? -%>
+
+  test "clearing your number takes effect immediately" do
+    patch <%= identity.settings_helper_prefix %>_phone_path, params: {
+      phone: ""<%= settings_credential_pair %>
+    }
+
+    assert_nil @user.reload.phone
+  end
+<%- end -%>
+
+  private
+
+  def request_change_to(number)
+    patch <%= identity.settings_helper_prefix %>_phone_path, params: {
+      phone: number<%= settings_credential_pair %>
+    }
+  end
+
+  def issued_code
+    enqueued_jobs.reverse.filter_map { |job| job.to_s[/(\d{6}) is your/, 1] }.first
+  end
+
+  def texted_numbers
+    enqueued_jobs.filter_map { |job| job.to_s[/\+\d{6,}/] }
+  end
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

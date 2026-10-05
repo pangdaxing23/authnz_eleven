@@ -1,0 +1,56 @@
+require "test_helper"
+
+class <%= identity.class_name %>::SignInMethodsTest < ActiveSupport::TestCase
+  setup { @user = <%= identity.plural %>(:bob) }
+<%- if omniauth? -%>
+
+  test "a linked provider is a way in" do
+    @user.omniauth_identities.create!(provider: "developer", uid: "only")
+    assert_includes @user.reload.sign_in_methods, :omniauth
+  end
+
+  test "a spare provider is always another way in" do
+    @user.omniauth_identities.create!(provider: "developer", uid: "one")
+    @user.omniauth_identities.create!(provider: "developer", uid: "two")
+
+    assert_not @user.reload.last_sign_in_method?(:omniauth),
+      "two linked accounts means removing one leaves the other"
+  end
+
+  test "last_sign_in_method? is true exactly when this kind is all that is left" do
+    @user.omniauth_identities.create!(provider: "developer", uid: "only")
+    @user.reload
+
+    assert_equal (@user.sign_in_methods == [ :omniauth ]), @user.last_sign_in_method?(:omniauth)
+  end
+<%- end -%>
+<%- if passkey? && omniauth? -%>
+
+  test "a provider is protected in a passkey build when no passkey was ever enrolled" do
+    @user.webauthn_credentials.destroy_all
+    @user.omniauth_identities.destroy_all
+    @user.omniauth_identities.create!(provider: "developer", uid: "only")
+    @user.reload
+<%- if password? || magic_link? -%>
+
+    assert_not @user.last_sign_in_method?(:omniauth),
+      "this build has another sign-in method, so the link is removable"
+<%- else -%>
+
+    assert @user.last_sign_in_method?(:omniauth),
+      "having passkey sign-in enabled does not mean this account has a passkey"
+<%- end -%>
+  end
+<%- end -%>
+<%- if passkey? -%>
+
+  test "an enrolled passkey is a way in, and the last one is protected" do
+    @user.webauthn_credentials<%= ".passkeys" if passkey_and_security_keys? %>.destroy_all
+    @user.webauthn_credentials.create!(name: "Only key", external_id: "ext-only", public_key: "pk"<%= factor_attr(:first_factor) %>)
+    @user.reload
+
+    assert_includes @user.sign_in_methods, :passkey
+    assert_equal (@user.sign_in_methods == [ :passkey ]), @user.last_sign_in_method?(:passkey)
+  end
+<%- end -%>
+end

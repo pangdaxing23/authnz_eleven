@@ -1,0 +1,5 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1><%%= <%= identity.current_class %>.team.name %></h1>
+
+<%%= link_to "Your teams", <%= identity.nested_helper("teams_path") %> %>

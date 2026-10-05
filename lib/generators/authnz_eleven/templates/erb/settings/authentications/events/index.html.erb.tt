@@ -1,0 +1,18 @@
+<h1>Security activity</h1>
+
+<table>
+  <thead>
+    <tr><th>When</th><th>Event</th><th>IP address</th></tr>
+  </thead>
+  <tbody>
+    <%% @events.each do |event| %>
+      <tr>
+        <td><%%= event.occurred_at %></td>
+        <td><%%= event.event_type %></td>
+        <td><%%= event.ip_address %></td>
+      </tr>
+    <%% end %>
+  </tbody>
+</table>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

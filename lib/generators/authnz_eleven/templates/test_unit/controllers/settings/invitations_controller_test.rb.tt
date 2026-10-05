@@ -1,0 +1,157 @@
+require "test_helper"
+
+class <%= identity.settings_module %>::InvitationsControllerTest < ActionDispatch::IntegrationTest
+  include ActionMailer::TestHelper
+  include ActiveJob::TestHelper
+
+  setup { @user = <%= identity.plural %>(:bob) }
+<%- if teams? -%>
+
+  test "choosing a team attaches the invitation to it" do
+    sign_in_as @user
+    post <%= identity.settings_helper_prefix %>_invitation_path,
+      params: { sent_to: <%= email_invitable? ? %("invitee-#{SecureRandom.hex(4)}@example.com") : %("+1415555#{rand(1000..9999)}") %>, team_id: <%= identity.teams_table %>(:acme).id }
+
+    assert_equal <%= identity.teams_table %>(:acme), <%= identity.invitation_class %>.last.team
+  end
+
+  test "choosing no team invites to the app itself" do
+    sign_in_as @user
+    post <%= identity.settings_helper_prefix %>_invitation_path,
+      params: { sent_to: <%= email_invitable? ? %("invitee-#{SecureRandom.hex(4)}@example.com") : %("+1415555#{rand(1000..9999)}") %>, team_id: "" }
+
+    assert_nil <%= identity.invitation_class %>.last.team
+  end
+
+  test "an existing account can be invited to a team" do
+    sign_in_as @user
+    existing = <%= identity.plural %>(:alice)
+    team = <%= identity.team_class %>.create!(name: "Beta")
+    team.memberships.create!(<%= identity.singular %>: @user)
+
+    post <%= identity.settings_helper_prefix %>_invitation_path,
+      params: { sent_to: existing.<%= email_invitable? ? "email" : "phone" %>, team_id: team.id }
+
+    assert <%= identity.invitation_class %>.exists?(sent_to: existing.<%= email_invitable? ? "email" : "phone" %>, team:)
+  end
+<%- unless coy? -%>
+
+  test "you cannot invite someone already on the team" do
+    sign_in_as @user
+    existing = <%= identity.plural %>(:alice)
+
+    post <%= identity.settings_helper_prefix %>_invitation_path,
+      params: { sent_to: existing.<%= email_invitable? ? "email" : "phone" %>, team_id: <%= identity.teams_table %>(:acme).id }
+
+    assert_response :unprocessable_entity
+    assert_not <%= identity.invitation_class %>.exists?(sent_to: existing.<%= email_invitable? ? "email" : "phone" %>)
+  end
+<%- end -%>
+
+  test "you cannot invite into a team you don't belong to" do
+    sign_in_as @user
+    post <%= identity.settings_helper_prefix %>_invitation_path,
+      params: { sent_to: <%= email_invitable? ? %("invitee-#{SecureRandom.hex(4)}@example.com") : %("+1415555#{rand(1000..9999)}") %>,
+                team_id: <%= identity.team_class %>.create!(name: "Someone Else's").id }
+
+    assert_response :not_found
+  end
+<%- end -%>
+<%- if email_invitable? -%>
+
+  test "sending an email invitation emails the invitee" do
+    sign_in_as @user
+    address = " Invitee-#{SecureRandom.hex(4)}@EXAMPLE.COM "
+<%- if phone_invitable? -%>
+    assert_no_enqueued_jobs only: SmsDeliveryJob do
+<%- end -%>
+      assert_enqueued_emails 1 do
+        post <%= identity.settings_helper_prefix %>_invitation_path, params: { sent_to: address }
+      end
+<%- if phone_invitable? -%>
+    end
+<%- end -%>
+    assert_equal address.strip.downcase, <%= identity.invitation_class %>.last.sent_to
+  end
+<%- end -%>
+<%- if phone_invitable? -%>
+
+  test "sending a phone invitation texts the invitee" do
+    sign_in_as @user
+    suffix = format("%04d", rand(10_000))
+    submitted = "(415) 555-#{suffix}"
+    number = "+1415555#{suffix}"
+
+    invitation_delivery = ->(args) {
+      args.one? && args.first[:to] == number && args.first[:body].include?("invited you")
+    }
+    assert_no_enqueued_emails do
+      assert_enqueued_with(job: SmsDeliveryJob, args: invitation_delivery) do
+        post <%= identity.settings_helper_prefix %>_invitation_path, params: { sent_to: submitted }
+      end
+    end
+  end
+<%- end -%>
+<%- if coy? -%>
+
+  test "the invite form answers identically for a destination on file and one that isn't" do
+    sign_in_as @user
+<%- if phone_invitable? -%>
+
+    stranger = "+1415555#{rand(1000..9999)}"
+    assert_enqueued_with(job: SmsDeliveryJob) do
+      post <%= identity.settings_helper_prefix %>_invitation_path, params: { sent_to: stranger }
+    end
+    stranger_notice = flash[:notice].sub(stranger, "ADDRESS")
+
+    assert_no_enqueued_jobs only: SmsDeliveryJob do
+      post <%= identity.settings_helper_prefix %>_invitation_path, params: { sent_to: @user.phone }
+    end
+    on_file_notice = flash[:notice].sub(@user.phone, "ADDRESS")
+<%- else -%>
+
+    stranger = "invitee-#{SecureRandom.hex(4)}@example.com"
+    assert_enqueued_emails 1 do
+      post <%= identity.settings_helper_prefix %>_invitation_path, params: { sent_to: stranger }
+    end
+    stranger_notice = flash[:notice].sub(stranger, "ADDRESS")
+
+    assert_no_enqueued_emails do
+      post <%= identity.settings_helper_prefix %>_invitation_path, params: { sent_to: @user.email }
+    end
+    on_file_notice = flash[:notice].sub(@user.email, "ADDRESS")
+<%- end -%>
+
+    assert_equal stranger_notice, on_file_notice,
+      "the invite form must not reveal whether a destination already has an account"
+  end
+<%- end -%>
+<%- unless coy? -%>
+
+  test "you cannot invite an address that already has an account" do
+    sign_in_as @user
+    existing = <%= identity.plural %>(:alice)
+
+    post <%= identity.settings_helper_prefix %>_invitation_path, params: { sent_to: existing.<%= email_invitable? ? "email" : "phone" %> }
+
+    assert_response :unprocessable_entity
+    assert_not <%= identity.invitation_class %>.exists?(sent_to: existing.<%= email_invitable? ? "email" : "phone" %>)
+  end
+<%- end -%>
+
+  test "deleting an account deletes the invitations it sent and the one it accepted" do
+    @user.sent_invitations.create!(sent_to: <%= email_invitable? ? %("sent-#{SecureRandom.hex(4)}@example.com") : %("+1415555#{rand(1000..4999)}") %>)
+    accepted = <%= identity.plural %>(:alice).sent_invitations.create!(sent_to: <%= email_invitable? ? %("accepted-#{SecureRandom.hex(4)}@example.com") : %("+1415555#{rand(5000..9999)}") %>)
+    accepted.update_column(:invitee_id, @user.id)
+
+    assert_difference -> { <%= identity.invitation_class %>.count }, -2 do
+      @user.destroy
+    end
+  end
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

@@ -1,0 +1,52 @@
+module <%= identity.class_name %>::SecondFactor
+  extend ActiveSupport::Concern
+
+  included do
+    has_many :recovery_codes, dependent: :destroy
+
+<%- if password? -%>
+    generates_token_for :authentication_challenge, expires_in: <%= identity.config_reference %>.tokens.mfa_challenge do
+      password_salt
+    end
+<%- else -%>
+    generates_token_for :authentication_challenge, expires_in: <%= identity.config_reference %>.tokens.mfa_challenge
+<%- end -%>
+<%- if totp? -%>
+
+    encrypts :totp_secret
+
+    before_create do
+      self.totp_secret = ROTP::Base32.random
+    end
+<%- end -%>
+  end
+
+  def second_factor_enrolled?
+    <%= second_factor_enrolled_clauses.join(" || ") %>
+  end
+
+  def reset_second_factor!
+    transaction do
+<%- if totp? -%>
+      update!(totp_enrolled_at: nil, totp_secret: ROTP::Base32.random)
+<%- end -%>
+<%- if sms_second_factor? -%>
+      update!(sms_enrolled_at: nil)
+      clear_sms_challenge
+<%- end -%>
+<%- if security_keys? -%>
+      <%= second_factor_keys_expr %>.destroy_all
+<%- end -%>
+      discard_orphaned_recovery_codes!
+<%- if trackable? -%>
+      record_event("<%= identity.singular %>.second_factor_reset")
+<%- end -%>
+    end
+  end
+
+  # Recovery codes bypass the second factor as a whole, so they outlive any one
+  # of them and die with the last.
+  def discard_orphaned_recovery_codes!
+    recovery_codes.delete_all unless second_factor_enrolled?
+  end
+end

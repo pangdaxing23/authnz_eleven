@@ -1,0 +1,84 @@
+class <%= identity.settings_module %>::MultiFactorAuthentication::SmsController < <%= identity.settings_controller %>
+<%- if admin_mfa_gate? -%>
+  skip_impediments
+<%- end -%>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.sms_second_factor, only: :create,
+    with: -> { redirect_to new_<%= identity.settings_helper_prefix %>_mfa_sms_path, alert: "Too many codes requested. Please try again later." })
+  before_action :no_store, only: :update
+  before_action :set_user
+<%- if phone_column_nullable? -%>
+  before_action :require_a_number_to_text, only: %i[create update]
+<%- end -%>
+
+  def new
+  end
+
+  def create
+    @user.issue_sms_challenge
+
+    redirect_to new_<%= identity.settings_helper_prefix %>_mfa_sms_path, notice: "We sent a code to your phone."
+  end
+
+  def show
+    redirect_to <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+  end
+
+  def update
+    unless @user.verify_sms_challenge(params[:code])
+      return redirect_to new_<%= identity.settings_helper_prefix %>_mfa_sms_path, alert: "That code is incorrect or has expired."
+    end
+
+    should_mint = @user.recovery_codes.none?
+
+    @user.transaction do
+      @user.update!(sms_enrolled_at: Time.current)
+      @codes = <%= identity.recovery_code_class %>.regenerate_for(@user) if should_mint
+<%- if trackable? -%>
+      @user.record_event("<%= identity.singular %>.two_factor_enabled")
+<%- end -%>
+    end
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:sms_mfa_enabled)
+<%- end -%>
+
+    if should_mint
+      flash.delete(:alert)
+      flash.now[:notice] = "Two-factor authentication is on."
+      render "<%= identity.settings_path_prefix %>/multi_factor_authentication/recovery_codes/create"
+    else
+      redirect_to interrupted_destination(otherwise: new_<%= identity.settings_helper_prefix %>_mfa_sms_path),
+         notice: "Two-factor authentication is on. Your existing recovery codes still work.",
+         status: :see_other
+    end
+  end
+
+  def destroy
+    @user.transaction do
+      @user.update!(sms_enrolled_at: nil)
+      @user.clear_sms_challenge
+      @user.discard_orphaned_recovery_codes!
+<%- if trackable? -%>
+      @user.record_event("<%= identity.singular %>.two_factor_disabled")
+<%- end -%>
+    end
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:sms_mfa_disabled)
+<%- end -%>
+
+    redirect_to <%= identity.settings_helper_prefix %>_path, notice: "Two-factor authentication is off.", status: :see_other
+  end
+
+  private
+
+  def set_user
+    @user = <%= identity.current_class %>.user
+  end
+<%- if phone_column_nullable? -%>
+
+  def require_a_number_to_text
+    return if @user.phone.present?
+
+    redirect_to edit_<%= identity.settings_helper_prefix %>_phone_path, alert: "Add a phone number first."
+  end
+<%- end -%>
+end

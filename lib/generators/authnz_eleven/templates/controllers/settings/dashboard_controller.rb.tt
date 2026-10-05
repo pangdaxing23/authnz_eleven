@@ -1,0 +1,4 @@
+class <%= identity.settings_module %>::DashboardController < <%= identity.settings_controller %>
+  def index
+  end
+end

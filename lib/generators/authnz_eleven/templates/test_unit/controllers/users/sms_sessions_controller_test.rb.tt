@@ -1,0 +1,111 @@
+require "test_helper"
+
+class <%= identity.module_name %>::SmsSessionsControllerTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+
+  setup { @user = <%= identity.plural %>(:alice) }
+
+  test "requesting a code for a known number texts one" do
+    assert_enqueued_jobs 1, only: SmsDeliveryJob do
+      request_code @user.phone
+    end
+
+    assert_redirected_to <%= identity.route_scope %>_sms_sign_in_code_path
+    assert cookies[:<%= identity.cookie_name %>].blank?, "asking for a code must not sign anyone in"
+  end
+
+  test "the texted code signs them in" do
+    request_code <%= identity.plural %>(:bob).phone
+
+    patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: issued_code }
+
+    assert cookies[:<%= identity.cookie_name %>].present?
+<%- unless teams? -%>
+    assert_redirected_to <%= identity.nested_helper("root_url") %>
+<%- end -%>
+  end
+
+  test "a wrong code signs nobody in" do
+    request_code @user.phone
+
+    patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: "000000" }
+
+    assert_response :unprocessable_entity
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "a redeemed code cannot be used twice" do
+    request_code @user.phone
+    code = issued_code
+    patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: code }
+
+    delete <%= identity.route_scope %>_sign_out_path
+    patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: code }
+
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "guessing past the attempt cap destroys the code" do
+    request_code @user.phone
+    code = issued_code
+
+    (<%= identity.config_reference %>.sms.max_attempts + 1).times do
+      patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: "000000" }
+    end
+
+    patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: code }
+    assert cookies[:<%= identity.cookie_name %>].blank?, "the real code must be dead once the budget is spent"
+  end
+
+  test "an expired code signs nobody in" do
+    request_code @user.phone
+    code = issued_code
+
+    travel <%= identity.config_reference %>.tokens.sms_code + 1.minute
+    patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: code }
+
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- if coy? -%>
+
+  test "requesting a code for an unknown number gives nothing away" do
+    assert_no_enqueued_jobs only: SmsDeliveryJob do
+      request_code "+14158264010"
+    end
+
+    assert_redirected_to <%= identity.route_scope %>_sms_sign_in_code_path
+  end
+
+  test "the code page behaves the same with nothing pending" do
+    request_code "+14158264010"
+
+    get <%= identity.route_scope %>_sms_sign_in_code_path
+    assert_response :success
+
+    patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: "000000" }
+    assert_response :unprocessable_entity
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "an unknown number discards a parked code just as a known one does" do
+    request_code @user.phone
+    parked = issued_code
+
+    # Replace any parked code for every request; retaining it would reveal whether the submitted number has an account.
+    request_code "+14158264010"
+
+    patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: parked }
+    assert cookies[:<%= identity.cookie_name %>].blank?, "the parked code must not still sign anyone in"
+  end
+<%- end -%>
+
+  private
+
+  def request_code(phone)
+    post <%= identity.route_scope %>_sms_sign_in_path, params: { phone: phone }
+  end
+
+  def issued_code
+    enqueued_jobs.reverse.filter_map { |job| job.to_s[/(\d{6}) is your/, 1] }.first
+  end
+end

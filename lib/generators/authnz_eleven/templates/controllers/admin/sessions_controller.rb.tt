@@ -1,0 +1,17 @@
+class <%= admin_module %>::SessionsController < <%= admin_controller %>
+  def index
+    sessions = <%= identity.session_class %>.includes(:<%= identity.singular %><%= session_carries_team? ? ", :team" : "" %>).order(created_at: :desc)
+
+    if params[:user_id].present?
+      sessions = sessions.where(<%= identity.foreign_key %>: params[:user_id])
+      @filtered_user = <%= identity.class_name %>.find(params[:user_id])
+    end
+
+    @sessions = sessions.limit(100)
+  end
+
+  def destroy
+    <%= identity.session_class %>.find(params[:id]).destroy!
+    redirect_to <%= admin_helper("sessions_path") %>, notice: "Session ended.", status: :see_other
+  end
+end

@@ -1,0 +1,8 @@
+class <%= identity.nested_module("ImpersonationsController") %> < <%= identity.controller_superclass %>
+  not_found_unless :impersonating?
+
+  def destroy
+    stop_impersonating_user
+    redirect_to <%= admin_helper("root_path") %>, status: :see_other
+  end
+end

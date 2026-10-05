@@ -1,0 +1,13 @@
+<h1>Add a passkey</h1>
+
+<p>Follow your browser's prompt to create a passkey with your device screen lock,
+a fingerprint, or a security key.</p>
+
+<div data-controller="webauthn"
+     data-webauthn-challenge-url-value="<%%= new_<%= identity.settings_helper_prefix %>_passkey_path(format: :json) %>"
+     data-webauthn-verification-url-value="<%%= <%= identity.settings_helper_prefix %>_passkeys_path %>">
+  <button data-webauthn-target="button" data-action="webauthn#createCredential">Create passkey</button>
+  <p data-webauthn-target="error" style="color: red" hidden></p>
+</div>
+
+<p><%%= link_to "Back to passkeys", <%= identity.settings_helper_prefix %>_passkeys_path %></p>

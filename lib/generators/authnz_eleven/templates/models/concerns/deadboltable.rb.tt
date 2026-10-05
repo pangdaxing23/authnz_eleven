@@ -1,0 +1,39 @@
+module <%= identity.class_name %>::Deadboltable
+  extend ActiveSupport::Concern
+
+  class_methods do
+    def register_failed_attempt(identifier)
+      <%= multi_login? ? "find_by_login(identifier)" : "find_by(#{login_field}: identifier)" %>&.tap(&:register_failed_attempt!)
+    end
+  end
+
+  def deadbolted?
+    deadbolted_at.present? && deadbolted_at > <%= identity.config_reference %>.deadbolt.duration.ago
+  end
+
+  def deadbolt!
+    update!(deadbolted_at: Time.current, failed_attempts: 0)
+<%- if trackable? -%>
+    record_event("<%= identity.singular %>.deadbolted")
+<%- end -%>
+  end
+
+  def undeadbolt!
+    update!(deadbolted_at: nil, failed_attempts: 0)
+<%- if trackable? -%>
+    record_event("<%= identity.singular %>.undeadbolted")
+<%- end -%>
+  end
+
+  def register_failed_attempt!
+    return if deadbolted?
+    increment!(:failed_attempts)
+
+    maximum_attempts = <%= identity.config_reference %>.deadbolt.maximum_attempts
+    deadbolt! if maximum_attempts && failed_attempts >= maximum_attempts
+  end
+
+  def reset_failed_attempts!
+    update_column(:failed_attempts, 0) if failed_attempts.positive?
+  end
+end

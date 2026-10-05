@@ -1,0 +1,15 @@
+class <%= identity.settings_module %>::EmailVerificationsController < <%= identity.settings_controller %>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.email_verification, only: :create,
+    with: -> { redirect_to edit_<%= identity.settings_helper_prefix %>_email_path, alert: "Too many links requested. Please try again later." })
+
+  def create
+<%- unless coy? -%>
+    unless <%= identity.current_class %>.user.pending_email
+      return redirect_to edit_<%= identity.settings_helper_prefix %>_email_path, alert: "You have no email confirmation waiting."
+    end
+
+<%- end -%>
+    <%= deferred_call("#{identity.current_class}.user", :send_email_change_verification) %>
+    redirect_to edit_<%= identity.settings_helper_prefix %>_email_path, notice: "We sent you another link."
+  end
+end

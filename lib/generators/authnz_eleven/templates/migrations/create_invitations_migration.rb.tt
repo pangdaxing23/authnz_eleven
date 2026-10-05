@@ -1,0 +1,20 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.invitations_table %><%= primary_key_options %> do |t|
+      t.string :sent_to, null: false, index: true
+<%- if multi_channel_invitable? -%>
+      t.string :sent_to_channel, null: false
+<%- end -%>
+      t.datetime :expires_at
+      t.datetime :accepted_at
+
+      t.references :inviter,    null: false, foreign_key: { to_table: :<%= identity.table %> }<%= reference_type_options %>
+      t.references :invitee,    foreign_key: { to_table: :<%= identity.table %> }<%= reference_type_options %>
+<%- if teams? -%>
+      t.references :team,       foreign_key: <%= team_foreign_key %><%= reference_type_options %>
+<%- end -%>
+
+      t.timestamps
+    end
+  end
+end

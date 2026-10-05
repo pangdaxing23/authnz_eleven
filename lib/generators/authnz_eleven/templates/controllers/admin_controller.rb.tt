@@ -1,0 +1,6 @@
+class <%= admin_controller %> < <%= identity.controller_superclass %>
+  admins_only
+<%- if teams? -%>
+  skip_before_action :require_team
+<%- end -%>
+end

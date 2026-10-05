@@ -1,0 +1,39 @@
+require "test_helper"
+
+class <%= identity.module_name %>::SecurityNotificationsTest < ActionDispatch::IntegrationTest
+  include ActionMailer::TestHelper
+
+  setup { @user = <%= identity.plural %>(:bob) }
+
+  test "revoking a session emails the account" do
+    sign_in_as @user
+    other_session = @user.sessions.create!
+
+    assert_security_notification(:session_revoked) do
+      delete <%= identity.settings_helper_prefix %>_session_path(other_session)
+    end
+  end
+<%- if password? -%>
+
+  test "changing the password emails the account" do
+    sign_in_as @user
+
+    assert_security_notification(:password_changed) do
+      patch <%= identity.settings_helper_prefix %>_password_path,
+        params: { password_challenge: "quilted-lantern-moss-97", password: "heron-basalt-drift-41",
+                  password_confirmation: "heron-basalt-drift-41" }
+    end
+  end
+<%- end -%>
+
+  private
+
+  def assert_security_notification(event, &block)
+    expected = ->(params) { params[:to] == @user.email && params[:event] == event }
+    assert_enqueued_email_with <%= identity.mailer_class %>, :security_notification, params: expected, &block
+  end
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

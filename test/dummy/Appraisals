@@ -1,0 +1,28 @@
+# Generates one gemfile per supported Rails version so the generator test
+# suite can run against each in turn — the actual point of "testing multiple
+# Rails versions" for this gem, since authnz_eleven's generated code (not the
+# gem itself) is what depends on Rails, and test/dummy/Gemfile is where that
+# dependency lives.
+#
+# Usage (from test/dummy):
+#   bundle exec appraisal install
+# generates gemfiles/rails_8_0.gemfile and gemfiles/rails_8_1.gemfile (each is
+# this Gemfile's content plus the override below), then bundles each.
+#
+# Run the generator suite against a specific version by pointing
+# BUNDLE_GEMFILE at the generated gemfile instead of test/dummy/Gemfile, e.g.:
+#   BUNDLE_GEMFILE=test/dummy/gemfiles/rails_8_0.gemfile \
+#     bundle exec ruby -Itest -Ilib -e \
+#     'Dir.glob("test/generators/*_test.rb").each { |f| require_relative f }'
+#
+# Not run as part of `rake` yet (no CI matrix wired up) — see the
+# conversation that scaffolded this for why. Add appraise blocks here as new
+# Rails minor versions ship; drop the oldest once it's no longer supported.
+
+appraise "rails-8.0" do
+  gem "rails", "~> 8.0.0"
+end
+
+appraise "rails-8.1" do
+  gem "rails", "~> 8.1.0"
+end

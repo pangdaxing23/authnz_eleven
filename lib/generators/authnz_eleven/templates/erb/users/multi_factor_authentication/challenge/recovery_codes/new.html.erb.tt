@@ -1,0 +1,20 @@
+<p style="color: red"><%%= alert %></p>
+
+<h1>Enter a recovery code</h1>
+
+<p>Enter one of the recovery codes you saved when you set up two-factor authentication.</p>
+
+<%%= form_with url: <%= identity.route_scope %>_mfa_challenge_recovery_codes_path, method: :post do |form| %>
+  <div>
+    <%%= form.label :code %><br>
+    <%%= form.text_field :code, required: true, autofocus: true %>
+  </div>
+
+  <div><%%= form.submit "Verify" %></div>
+<%% end %>
+
+<%- second_factor_alternatives(:recovery_codes).each do |clause, label, path| -%>
+<%% if <%= clause %> %>
+  <p><%%= link_to "<%= label %>", <%= path %> %></p>
+<%% end %>
+<%- end -%>

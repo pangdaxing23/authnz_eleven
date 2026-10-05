@@ -1,0 +1,9 @@
+OmniAuth.config.request_validation_phase = OmniAuth::AuthenticityTokenProtection.new(key: :_csrf_token)
+
+# Replace :developer with your real provider(s), e.g.
+#   provider :google_oauth2, ENV["GOOGLE_CLIENT_ID"], ENV["GOOGLE_CLIENT_SECRET"], scope: "email,profile"
+#   provider :github, ENV["GITHUB_ID"], ENV["GITHUB_SECRET"], scope: "user:email"
+Rails.application.config.middleware.use OmniAuth::Builder do
+  options path_prefix: "<%= omniauth_path_prefix %>"
+  provider :developer unless Rails.env.production?
+end

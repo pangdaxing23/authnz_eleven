@@ -1,0 +1,17 @@
+<p style="color: red"><%%= alert %></p>
+
+<h1>Add a security key</h1>
+
+<p>Plug in or activate your security key, then click below to register it.</p>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_mfa_security_keys_path, method: :post, data: {turbo: false} do |form| %>
+  <div data-controller="webauthn"
+       data-webauthn-challenge-url-value="<%%= new_<%= identity.settings_helper_prefix %>_mfa_security_key_path(format: :json) %>">
+    <%%= form.hidden_field :credential, data: { webauthn_target: "field" } %>
+    <%%= form.button "Register security key", type: "button",
+          data: { webauthn_target: "button", action: "webauthn#createCredential" } %>
+    <p data-webauthn-target="error" style="color: red" hidden></p>
+  </div>
+<%% end %>
+
+<p><%%= link_to "Back to security keys", <%= identity.settings_helper_prefix %>_mfa_security_keys_path %></p>

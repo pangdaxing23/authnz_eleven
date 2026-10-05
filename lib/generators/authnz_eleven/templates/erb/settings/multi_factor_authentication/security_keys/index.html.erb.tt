@@ -1,0 +1,20 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1>Security keys</h1>
+
+<ul>
+  <%% @security_keys.each do |security_key| %>
+    <li>
+      <%%= security_key.name %>
+      <%%= link_to "Rename", edit_<%= identity.settings_helper_prefix %>_mfa_security_key_path(security_key) %>
+      <%%= button_to "Remove", <%= identity.settings_helper_prefix %>_mfa_security_key_path(security_key), method: :delete,
+            data: {turbo_confirm: "Remove this security key?"} %>
+    </li>
+  <%% end %>
+</ul>
+
+<p>Your recovery codes are deleted once you have no second factor left.</p>
+
+<p><%%= link_to "Add a security key", new_<%= identity.settings_helper_prefix %>_mfa_security_key_path %></p>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

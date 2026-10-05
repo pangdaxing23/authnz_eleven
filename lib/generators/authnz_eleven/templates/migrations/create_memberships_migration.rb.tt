@@ -1,0 +1,12 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.memberships_table %><%= primary_key_options %> do |t|
+      t.references :<%= identity.singular %>, null: false, foreign_key: true<%= reference_type_options %>
+      t.references :team, null: false, foreign_key: <%= team_foreign_key %><%= reference_type_options %>
+
+      t.timestamps
+    end
+
+    add_index :<%= identity.memberships_table %>, [ :<%= identity.foreign_key %>, :team_id ], unique: true
+  end
+end

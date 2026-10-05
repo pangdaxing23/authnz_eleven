@@ -1,0 +1,43 @@
+<%- if single_sudo_bar? -%>
+  <div>
+    <%%= form.label :sudo_password, "Current password" %><br>
+    <%%= form.password_field :sudo_password, required: true, autocomplete: "current-password" %>
+  </div>
+
+  <div><%%= form.submit submit %></div>
+<%- else -%>
+  <%%# Keep each strategy's submit button in its branch: WebAuthn must intercept it and submit only after obtaining an assertion. %>
+  <%% case sudo_strategy %>
+<%- if sudo_bars.include?(:webauthn) -%>
+  <%% when :webauthn %>
+    <div data-controller="webauthn"
+         data-webauthn-challenge-url-value="<%%= new_<%= identity.route_scope %>_sudo_path(format: :json) %>">
+      <%%= form.hidden_field :sudo_credential, data: { webauthn_target: "field" } %>
+      <%%= form.button submit, type: "button",
+            data: { webauthn_target: "button", action: "webauthn#getCredential" } %>
+      <p data-webauthn-target="error" style="color: red" hidden></p>
+    </div>
+<%- end -%>
+<%- if sudo_bars.include?(:password) -%>
+  <%% when :password %>
+    <div>
+      <%%= form.label :sudo_password, "Current password" %><br>
+      <%%= form.password_field :sudo_password, required: true, autocomplete: "current-password" %>
+    </div>
+
+    <div><%%= form.submit submit %></div>
+<%- end -%>
+<%- if sudo_bars.include?(:totp) -%>
+  <%% when :totp %>
+    <div>
+      <%%= form.label :sudo_code, "Code from your authenticator app" %><br>
+      <%%= form.text_field :sudo_code, required: true, autocomplete: "one-time-code", inputmode: "numeric" %>
+    </div>
+
+    <div><%%= form.submit submit %></div>
+<%- end -%>
+  <%%# This branch intentionally permits the request when the account has no challengeable factor. %>
+  <%% else %>
+    <div><%%= form.submit submit %></div>
+  <%% end %>
+<%- end -%>

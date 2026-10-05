@@ -1,0 +1,18 @@
+class <%= identity.module_name %>::Passkeys::SessionsController < <%= identity.controller_superclass %>
+  require_unauthenticated_access
+
+  def new
+    # Omit an allow-list so discoverable passkeys can identify their owner; require user verification because this is passwordless sign-in.
+    issue_webauthn_challenge(WebAuthn::Credential.options_for_get(user_verification: "required"))
+  end
+
+  def create
+    passkey = verify_webauthn_assertion(params.expect(credential: {}), from: <%= identity.webauthn_credential_class %><%= ".passkeys" if passkey_and_security_keys? %>)
+    user = passkey.<%= identity.singular %>
+
+    <%= sign_in_call("user", via: :passkey) %>
+    render json: { status: "ok", location: after_authentication_url }, status: :created
+  rescue WebAuthn::Error, ActiveRecord::RecordNotFound
+    render json: { error: "We couldn't verify that passkey. Please try again." }, status: :unprocessable_entity
+  end
+end

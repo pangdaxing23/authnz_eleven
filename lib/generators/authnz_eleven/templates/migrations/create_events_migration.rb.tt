@@ -1,0 +1,26 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.events_table %><%= primary_key_options %> do |t|
+      t.string :event_type, null: false
+
+      t.references :subject, polymorphic: true, null: false, index: false<%= reference_type_options %>
+      t.references :actor,   polymorphic: true, index: false<%= reference_type_options %>
+      t.references :context, polymorphic: true, index: false<%= reference_type_options %>
+
+      t.datetime :occurred_at, null: false
+      t.json :data
+
+      t.string :ip_address
+      t.string :user_agent
+      t.string :request_id
+
+      t.timestamps
+    end
+
+    add_index :<%= identity.events_table %>, :event_type
+    add_index :<%= identity.events_table %>, :request_id
+    add_index :<%= identity.events_table %>, [ :subject_type, :subject_id, :occurred_at ]
+    add_index :<%= identity.events_table %>, [ :context_type, :context_id, :occurred_at ]
+    add_index :<%= identity.events_table %>, [ :actor_type, :actor_id ]
+  end
+end

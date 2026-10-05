@@ -1,0 +1,20 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Forgot your password?</h1>
+
+<%%= form_with url: <%= identity.route_scope %>_reset_password_path, method: :post<%= captcha_form_options %> do |form| %>
+  <div>
+    <%%= form.label :email %><br>
+    <%%= form.email_field :email, required: true, autofocus: true, autocomplete: "email" %>
+  </div>
+
+<%- if captchable? -%>
+
+  <%%= render "shared/captcha" %>
+<%- end -%>
+
+  <div><%%= form.submit "Send reset instructions" %></div>
+<%% end %>
+
+<p><%%= link_to "Back to sign in", <%= identity.route_scope %>_sign_in_path %></p>

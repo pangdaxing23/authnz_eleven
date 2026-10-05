@@ -1,0 +1,83 @@
+require "test_helper"
+
+class <%= identity.nested_module("TeamsControllerTest") %> < ActionDispatch::IntegrationTest
+  setup do
+    @user = <%= identity.plural %>(:bob)
+    @team = <%= identity.teams_table %>(:acme)
+  end
+
+<%- if team_gated_page -%>
+  test "a teamless <%= identity.singular %> is held on the team list" do
+    leave_every_team
+    sign_in_as @user
+    get <%= team_gated_page %>
+    assert_redirected_to <%= identity.nested_helper("teams_path") %>
+  end
+
+<%- end -%>
+  test "the team list is reachable while held" do
+    leave_every_team
+    sign_in_as @user
+    get <%= identity.nested_helper("teams_path") %>
+    assert_response :success
+  end
+
+  test "creating a team lifts the hold" do
+    leave_every_team
+    sign_in_as @user
+    post <%= identity.nested_helper("teams_path") %>, params: { <%= identity.teams_table.singularize %>: { name: "Initech" } }
+    assert_response :redirect
+    assert @user.reload.on_a_team?
+  end
+<%- if scope_teams? -%>
+
+  test "a team's pages carry its id" do
+    sign_in_as @user
+    get <%= team_root_helper %>(team_id: @team)
+    assert_response :success
+    assert_match @team.name, response.body
+  end
+
+  test "a team you don't belong to is a 404" do
+    other = <%= identity.team_class %>.create!(name: "Someone Else's")
+    sign_in_as @user
+    get <%= team_root_helper %>(team_id: other)
+    assert_response :not_found
+  end
+<%- end -%>
+<%- if session_carries_team? -%>
+
+  test "you can switch to a team you belong to" do
+    sign_in_as @user
+    post <%= identity.nested_helper("active_team_path") %>, params: { team_id: @team.id }
+    assert_response :redirect
+  end
+
+  test "losing a membership clears that team from your sessions" do
+    sign_in_as @user
+    post <%= identity.nested_helper("active_team_path") %>, params: { team_id: @team.id }
+    assert_equal @team, @user.sessions.sole.reload.team
+
+    @user.memberships.find_by(team: @team).destroy!
+
+    assert_nil @user.sessions.sole.reload.team
+  end
+
+  test "you cannot switch to a team you don't belong to" do
+    other = <%= identity.team_class %>.create!(name: "Someone Else's")
+    sign_in_as @user
+    post <%= identity.nested_helper("active_team_path") %>, params: { team_id: other.id }
+    assert_response :not_found
+  end
+<%- end -%>
+
+  private
+
+  def leave_every_team
+    @user.memberships.destroy_all
+  end
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

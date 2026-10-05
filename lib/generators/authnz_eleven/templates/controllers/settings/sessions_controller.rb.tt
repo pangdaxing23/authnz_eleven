@@ -1,0 +1,29 @@
+class <%= identity.settings_module %>::SessionsController < <%= identity.settings_controller %>
+<%- if max_sessions_prompt? -%>
+  skip_impediments
+<%- end -%>
+  before_action :set_sessions
+
+  def index
+    @sessions = @sessions.order(created_at: :desc)
+  end
+
+  def destroy
+    @sessions.find(params[:id]).destroy!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:session_revoked)
+<%- end -%>
+    redirect_to interrupted_destination(otherwise: <%= identity.settings_helper_prefix %>_sessions_path),
+      notice: "That session has been signed out.", status: :see_other
+  end
+
+  private
+
+  def set_sessions
+<%- if timeoutable? -%>
+    @sessions = <%= identity.current_class %>.user.sessions.active
+<%- else -%>
+    @sessions = <%= identity.current_class %>.user.sessions
+<%- end -%>
+  end
+end

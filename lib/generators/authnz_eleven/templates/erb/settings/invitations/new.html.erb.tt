@@ -1,0 +1,31 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Invite someone</h1>
+
+<%% if @invitation.errors.any? %>
+  <ul style="color: red">
+    <%% @invitation.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_invitation_path, method: :post do |form| %>
+  <div>
+    <%%= form.label :sent_to, "<%= invitation_recipient_label %>" %><br>
+    <%%= form.<%= multi_channel_invitable? ? "text_field" : (email_invitable? ? "email_field" : "telephone_field") %> :sent_to, value: @invitation.sent_to, required: true, autofocus: true %>
+  </div>
+
+<%- if teams? -%>
+  <div>
+    <%%= form.label :team_id, "Team" %><br>
+    <%%= form.select :team_id, @teams.map { |team| [ team.name, team.id ] },
+          include_blank: "No team, invite to #{<%= identity.config_reference %>.app_name}" %>
+  </div>
+
+<%- end -%>
+  <div><%%= form.submit "Send invitation" %></div>
+<%% end %>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

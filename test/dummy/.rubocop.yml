@@ -1,0 +1,6 @@
+# Omakase Ruby styling for Rails
+inherit_gem: { rubocop-rails-omakase: rubocop.yml }
+
+# A real app reads this from .ruby-version, which the dummy doesn't carry.
+AllCops:
+  TargetRubyVersion: 3.4

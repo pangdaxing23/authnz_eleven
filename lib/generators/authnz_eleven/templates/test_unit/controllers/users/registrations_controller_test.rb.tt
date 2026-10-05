@@ -1,0 +1,180 @@
+require "test_helper"
+
+class <%= identity.module_name %>::RegistrationsControllerTest < ActionDispatch::IntegrationTest
+  include ActionMailer::TestHelper
+
+  setup { @existing = <%= identity.plural %>(:alice) }
+<%- if invite_only? -%>
+
+  test "sign up is gated behind an invitation" do
+    get <%= identity.route_scope %>_sign_up_path
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+  end
+<%- else -%>
+
+  test "sign up page renders" do
+    get <%= identity.route_scope %>_sign_up_path
+    assert_response :success
+  end
+
+<%- if typed_staged_registration? -%>
+  test "a valid sign up stages a claim without creating an account" do
+    assert_difference -> { <%= identity.pending_registration_class %>.count }, 1 do
+      assert_no_difference -> { <%= identity.class_name %>.count } do
+        post <%= identity.route_scope %>_sign_up_path, params: sign_up_params
+      end
+    end
+  end
+<%- if password_on_sign_up_form? -%>
+
+  # A claim carries the password typed beside it. Superseding would hand whoever
+  # signs up last the credential the first person's link installs, so claims stand
+  # on their own: your link always mints the password you typed.
+  test "a second claim on one identifier leaves the first standing" do
+    claimed = sign_up_params
+    post <%= identity.route_scope %>_sign_up_path, params: claimed
+    first = <%= identity.pending_registration_class %>.last
+
+    assert_difference -> { <%= identity.pending_registration_class %>.count }, 1 do
+      post <%= identity.route_scope %>_sign_up_path, params: claimed
+    end
+    assert <%= identity.pending_registration_class %>.exists?(first.id)
+  end
+<%- end -%>
+<%- else -%>
+  test "a valid sign up creates the account" do
+    assert_difference -> { <%= identity.class_name %>.count }, 1 do
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params
+    end
+  end
+<%- end -%>
+<%- if principals.phone -%>
+<%- if typed_phone_gated_registration? && coy? && principals.email.nil? -%>
+
+  test "an already-registered phone is answered like a free one" do
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(phone: @existing.phone)
+    end
+    assert_redirected_to <%= identity.route_scope %>_verify_phone_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- else -%>
+
+<%- if typed_staged_registration? && coy? -%>
+  test "an already-registered phone is staged like any other" do
+    assert_difference -> { <%= identity.pending_registration_class %>.count }, 1 do
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(phone: @existing.phone)
+    end
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- else -%>
+  test "an already-registered phone is rejected" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(phone: @existing.phone)
+    assert_response :unprocessable_entity
+  end
+<%- end -%>
+<%- end -%>
+<%- if typed_phone_gated_registration? && coy? && principals.email&.optional? -%>
+
+  test "an already-registered phone is answered like a free one when no email is given" do
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(phone: @existing.phone, email: "")
+    end
+    assert_redirected_to <%= identity.route_scope %>_verify_phone_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- end -%>
+<%- end -%>
+<%- if email_verifiable? && coy? -%>
+
+  test "a fresh sign up does not sign in until the email is verified" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params
+    assert_redirected_to <%= identity.route_scope %>_new_verify_email_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "signing up with an already-registered email mails nobody" do
+    assert_no_enqueued_emails do
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(email: @existing.email)
+    end
+  end
+<%- elsif email_verifiable? -%>
+
+  test "a fresh sign up does not sign in until the email is verified" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params
+    assert_redirected_to <%= identity.route_scope %>_<%= email_gated_registration? ? "new_verify_email" : "sign_up" %>_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "signing up with an already-registered email is rejected" do
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(email: @existing.email)
+    end
+    assert_response :unprocessable_entity
+    assert_includes response.body, "has already been taken"
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- else -%>
+
+<%- if typed_phone_gated_registration? && principals.email.nil? -%>
+  test "a valid sign up withholds the session until the phone is confirmed" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params
+    assert_redirected_to <%= identity.route_scope %>_verify_phone_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- else -%>
+  test "a valid sign up signs in immediately" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- end -%>
+<%- if principals.email -%>
+
+  test "an already-registered email is rejected" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(email: @existing.email)
+    assert_response :unprocessable_entity
+  end
+<%- end -%>
+<%- end -%>
+<%- end -%>
+<%- if channel_less_registration? -%>
+
+  test "a sign up with no channel at all skips verification" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(<%= principals.email ? %(email: "", ) : "" %>phone: "")
+<%- if credential_staged_registration? -%>
+    assert_redirected_to <%= credential_enrollment_path %>
+    assert cookies[:<%= identity.cookie_name %>].blank?
+<%- else -%>
+    assert cookies[:<%= identity.cookie_name %>].present?
+<%- end -%>
+  end
+<%- end -%>
+<%- if contactable_validation? -%>
+
+  test "a sign up with no channel at all is refused" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(email: "", phone: "")
+
+    assert_response :unprocessable_entity
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- end -%>
+<%- if typed_phone_gated_registration? && principals.phone.optional? && principals.email&.optional? -%>
+
+  test "a sign up with a phone and no email must verify the phone first" do
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(<%= principals.email ? %(email: "") : "" %>)
+    assert_redirected_to <%= identity.route_scope %>_verify_phone_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- end -%>
+
+  private
+
+  def sign_up_params(**overrides)
+    <%= sign_up_fixture_literal(indent: 4) %>.merge(overrides)
+  end
+end

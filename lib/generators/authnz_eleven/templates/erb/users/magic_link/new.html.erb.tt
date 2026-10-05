@@ -1,0 +1,22 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Sign in with a magic link</h1>
+
+<p>Enter your email and we'll send you a link to sign in without a password.</p>
+
+<%%= form_with url: <%= identity.route_scope %>_magic_link_path, method: :post<%= captcha_form_options %> do |form| %>
+  <div>
+    <%%= form.label :email %><br>
+    <%%= form.email_field :email, required: true, autofocus: true, autocomplete: "email" %>
+  </div>
+
+<%- if captchable? -%>
+
+  <%%= render "shared/captcha" %>
+<%- end -%>
+
+  <div><%%= form.submit "Send magic link" %></div>
+<%% end %>
+
+<p><%%= link_to "Back to sign in", <%= identity.route_scope %>_sign_in_path %></p>

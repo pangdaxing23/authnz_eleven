@@ -1,0 +1,88 @@
+class <%= identity.settings_module %>::PhonesController < <%= identity.settings_controller %>
+<%- if sudoable? -%>
+  require_sudo message: "Please confirm it's you before changing your phone number.", only: :update
+<%- end -%>
+<%- if phone_verifiable? -%>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.phone_verification, only: :update,
+    with: -> { redirect_to edit_<%= identity.settings_helper_prefix %>_phone_path, alert: "Too many codes requested. Please try again later.", status: :see_other })
+<%- end -%>
+<%- if password? && !sudoable? -%>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.password_challenge, only: :update, name: "password_challenge",
+    with: -> { redirect_to edit_<%= identity.settings_helper_prefix %>_phone_path, alert: "Too many attempts. Please try again later.", status: :see_other })
+<%- end -%>
+  before_action :set_user
+
+  def edit
+  end
+<%- if phone_verifiable? -%>
+
+  def update
+<%- if password? && !sudoable? -%>
+    @user.assign_attributes(user_params.except(:phone))
+<%- end -%>
+    @user.stage_phone(user_params[:phone])
+    return render :edit, status: :unprocessable_entity unless @user.save
+    unless @user.pending_phone
+<%- if security_notifications? -%>
+      <%= identity.mailer_class %>.send_security_notification(:phone_changed) if @user.phone_previously_changed?
+<%- end -%>
+      return redirect_to_settled
+    end
+
+    <%= deferred_call("@user", :request_phone_change_verification) %>
+    redirect_to new_<%= identity.settings_helper_prefix %>_phone_verification_path, notice: "Check your phone for a code to confirm your new number.",
+      status: :see_other
+  end
+<%- else -%>
+
+  def update
+    if @user.update(user_params)
+<%- if security_notifications? -%>
+      <%= identity.mailer_class %>.send_security_notification(:phone_changed) if @user.phone_previously_changed?
+<%- end -%>
+      redirect_to_settled
+    else
+      render :edit, status: :unprocessable_entity
+    end
+  rescue ActiveRecord::RecordNotUnique
+    respond_to_taken_phone
+  end
+<%- end -%>
+
+  private
+<%- unless phone_verifiable? -%>
+
+  def respond_to_taken_phone
+    @user.errors.add(:phone, :taken)
+    render :edit, status: :unprocessable_entity
+  end
+<%- end -%>
+
+  def set_user
+    @user = <%= identity.current_class %>.user
+  end
+
+  def user_params
+<%- if password? && !sudoable? -%>
+    params.permit(:phone, :password_challenge).with_defaults(password_challenge: "")
+<%- else -%>
+    params.permit(:phone)
+<%- end -%>
+  end
+
+  def redirect_to_settled
+<%- if principals.phone.optional? -%>
+    return redirect_to_edit("Your phone has been removed.") if @user.phone.blank?
+
+<%- end -%>
+<%- unless phone_verifiable? -%>
+    return redirect_to_edit("Your phone has been changed.") if @user.phone_previously_changed?
+
+<%- end -%>
+    redirect_to_edit("That's already your phone number.")
+  end
+
+  def redirect_to_edit(notice)
+    redirect_to edit_<%= identity.settings_helper_prefix %>_phone_path, notice: notice, status: :see_other
+  end
+end

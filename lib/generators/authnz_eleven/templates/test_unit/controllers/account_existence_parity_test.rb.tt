@@ -1,0 +1,158 @@
+require "test_helper"
+
+class <%= identity.module_name %>::AccountExistenceParityTest < ActionDispatch::IntegrationTest
+  def queue_adapter_for_test = ActiveJob::QueueAdapters::TestAdapter.new
+
+  setup { @user = <%= identity.plural %>(:alice) }
+<%- if password? -%>
+
+  test "a failed sign-in does the same work for any address" do
+    assert_same_work(@user.<%= login_field %>, unknown_email) do |login|
+      post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: login, password: "wrong-password-0" }
+    end
+  end
+<%- end -%>
+<%- if recoverable? -%>
+
+  test "a password reset request does the same work for any address" do
+    assert_same_work(@user.email, unknown_email) do |email|
+      post <%= identity.route_scope %>_reset_password_path, params: { email: }
+    end
+  end
+<%- end -%>
+<%- if magic_link? -%>
+
+  test "a magic link request does the same work for any address" do
+    assert_same_work(@user.email, unknown_email) do |email|
+      post <%= identity.route_scope %>_magic_link_path, params: { email: }
+    end
+  end
+<%- end -%>
+<%- if sms_code? -%>
+
+  test "an SMS sign-in request does the same work for any number" do
+    assert_same_work(@user.phone, unknown_phone) do |phone|
+      post <%= identity.route_scope %>_sms_sign_in_path, params: { phone: }
+    end
+  end
+
+  test "an SMS sign-in code check does the same work for any number" do
+    works = [ @user.phone, unknown_phone ].map do |phone|
+      perform_enqueued_jobs(only: AuthnzElevenDeferredJob) do
+        post <%= identity.route_scope %>_sms_sign_in_path, params: { phone: }
+      end
+      work_of { patch <%= identity.route_scope %>_sms_sign_in_code_path, params: { code: "000000" } }
+    end
+
+    assert_equal(*works)
+  end
+<%- end -%>
+<%- if email_gated_registration? && !invite_only? -%>
+
+  test "signing up does the same work for any address" do
+    assert_same_work(@user.email, unknown_email) do |email|
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(email:)
+    end
+  end
+
+  test "resending a sign-up link does the same work for any address" do
+    works = [ @user.email, unknown_email ].map do |email|
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(email:)
+      work_of { post <%= identity.route_scope %>_verify_email_path }
+    end
+
+    assert_equal(*works)
+  end
+<%- end -%>
+<%- if email_change_verification? -%>
+
+  test "changing your email does the same work for any address" do
+    sign_in_as <%= identity.plural %>(:bob)
+    assert_same_work(@user.email, unknown_email) do |email|
+      patch <%= identity.settings_helper_prefix %>_email_path, params: { email:<%= settings_credential_pair %> }
+    end
+  end
+
+  test "resending an email change link does the same work for any address" do
+    sign_in_as <%= identity.plural %>(:bob)
+    works = [ @user.email, unknown_email ].map do |email|
+      patch <%= identity.settings_helper_prefix %>_email_path, params: { email:<%= settings_credential_pair %> }
+      work_of { post <%= identity.settings_helper_prefix %>_email_verification_path }
+    end
+
+    assert_equal(*works)
+  end
+<%- end -%>
+<%- if phone_change_verification? -%>
+
+  test "changing your phone does the same work for any number" do
+    sign_in_as <%= identity.plural %>(:bob)
+    assert_same_work(@user.phone, unknown_phone) do |phone|
+      patch <%= identity.settings_helper_prefix %>_phone_path, params: { phone:<%= settings_credential_pair %> }
+    end
+  end
+
+  test "resending a phone change code does the same work for any number" do
+    sign_in_as <%= identity.plural %>(:bob)
+    works = [ @user.phone, unknown_phone ].map do |phone|
+      patch <%= identity.settings_helper_prefix %>_phone_path, params: { phone:<%= settings_credential_pair %> }
+      work_of { post <%= identity.settings_helper_prefix %>_phone_verification_path }
+    end
+
+    assert_equal(*works)
+  end
+<%- end -%>
+<%- if invitable? -%>
+
+  test "inviting does the same work for anyone" do
+    sign_in_as <%= identity.plural %>(:bob)
+<%- if email_invitable? -%>
+    assert_same_work(@user.email, unknown_email) do |sent_to|
+<%- else -%>
+    assert_same_work(@user.phone, unknown_phone) do |sent_to|
+<%- end -%>
+      post <%= identity.settings_helper_prefix %>_invitation_path, params: { sent_to: }
+    end
+  end
+<%- end -%>
+
+  private
+
+  def assert_same_work(known, unknown, &request)
+    assert_equal work_of { request.(known) }, work_of { request.(unknown) }
+  end
+
+  def work_of
+    work = []
+    record = lambda do |event, *, payload|
+      if event == "sql.active_record"
+        work << [ without_literals(payload[:sql]), payload[:row_count] ] unless payload[:sql].start_with?("SELECT") || payload[:name] == "SCHEMA"
+      elsif !payload[:key].to_s.start_with?("rate-limit:")
+        work << [ event, payload[:job]&.class ]
+      end
+    end
+    ActiveSupport::Notifications.subscribed(record, /\A(sql\.active_record|cache_\w+\.active_support|enqueue\.active_job)\z/) { yield }
+    work
+  end
+
+  def without_literals(sql) = sql.gsub(/'(?:[^'\\]|\\.)*'|\b\d+\b/, "?")
+
+  def unknown_email = "nobody-#{SecureRandom.hex(4)}@example.com"
+<%- if principals.phone -%>
+  def unknown_phone = "+14158264010"
+<%- end -%>
+<%- if email_change_verification? || phone_change_verification? || invitable? -%>
+
+  def sign_in_as(user)
+    perform_enqueued_jobs(only: AuthnzElevenDeferredJob) do
+<%= test_sign_in_body.gsub(/^(?=.)/, "  ") %>
+    end
+  end
+<%- end -%>
+<%- if email_gated_registration? && !invite_only? -%>
+
+  def sign_up_params(**overrides)
+    <%= sign_up_fixture_literal(indent: 4) %>.merge(overrides)
+  end
+<%- end -%>
+end

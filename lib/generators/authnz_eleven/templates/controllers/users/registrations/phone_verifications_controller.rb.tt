@@ -1,0 +1,37 @@
+class <%= identity.module_name %>::Registrations::PhoneVerificationsController < <%= identity.controller_superclass %>
+  include <%= identity.authentication_concern %>::Registering
+
+  allow_unauthenticated_access
+  rate_limit(**<%= identity.config_reference %>.rate_limits.phone_verification, only: :create,
+    with: -> { redirect_to <%= identity.route_scope %>_verify_phone_path, alert: "Too many codes requested. Please try again later." })
+  before_action :set_pending_registration
+
+  def new
+  end
+
+  def create
+    <%= deferred_call("@registration", :request_phone_verification) %>
+    redirect_to <%= identity.route_scope %>_verify_phone_path, notice: "We sent you another code."
+  end
+
+  def update
+<%- if principals.username -%>
+    @registration.username = params[:username] if params[:username]
+    return render :new, status: :unprocessable_entity unless @registration.valid?
+<%- end -%>
+    unless @registration.verify_sms_challenge(params[:code])
+      flash.now[:alert] = "That code is incorrect or has expired."
+      return render :new, status: :unprocessable_entity
+    end
+
+    @registration.update!(phone_verified_at: Time.current)
+    advance(@registration)
+  end
+
+  private
+
+  def set_pending_registration
+    @registration = <%= identity.pending_registration_class %>.unexpired.find_by(id: session[:<%= pending_registration_session_key %>])
+    redirect_to <%= registration_entry_path %> unless @registration
+  end
+end

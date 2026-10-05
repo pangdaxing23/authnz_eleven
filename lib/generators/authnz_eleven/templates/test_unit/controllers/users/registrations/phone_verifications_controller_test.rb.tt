@@ -1,0 +1,69 @@
+require "test_helper"
+
+class <%= identity.module_name %>::Registrations::PhoneVerificationsControllerTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+<%- unless typed_phone_gated_registration? -%>
+
+  teardown do
+    OmniAuth.config.mock_auth[:developer] = nil
+    OmniAuth.config.test_mode = false
+  end
+<%- end -%>
+
+  test "the code verifies its exact pending number" do
+    registration, code = begin_phone_verification
+
+<%- if !typed_phone_gated_registration? || sign_up_fixture_can_sign_in? -%>
+    assert_difference -> { <%= identity.class_name %>.count }, 1 do
+      patch <%= identity.route_scope %>_verify_phone_path, params: { code: code }
+    end
+    assert_not <%= identity.pending_registration_class %>.exists?(registration.id)
+<%- else -%>
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      patch <%= identity.route_scope %>_verify_phone_path, params: { code: code }
+    end
+    assert registration.reload.phone_verified_at?
+<%- end -%>
+  end
+
+  test "a wrong code creates no account" do
+    begin_phone_verification
+
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      patch <%= identity.route_scope %>_verify_phone_path, params: { code: "000000" }
+    end
+    assert_response :unprocessable_entity
+  end
+
+  private
+
+  def begin_phone_verification
+    clear_enqueued_jobs
+<%- if typed_phone_gated_registration? -%>
+<%- if invite_only? -%>
+    <%= accept_test_invitation(%("invitee@example.com")) %>
+<%- end -%>
+    post <%= identity.route_scope %>_sign_up_path, params: <%= sign_up_fixture_literal(indent: 4) %>
+    registration = <%= identity.pending_registration_class %>.last
+<%- if email_verifiable? -%>
+    registration.update!(email_verified_at: Time.current)
+<%- end -%>
+    registration.request_phone_verification
+<%- else -%>
+    OmniAuth.config.test_mode = true
+    OmniAuth.config.mock_auth[:developer] = OmniAuth::AuthHash.new(
+      provider: "developer", uid: "phone-verification", info: { email: "provider-user@example.com" }
+    )
+<%- if invite_only? -%>
+    <%= accept_test_invitation(%("provider-user@example.com")) %>
+<%- end -%>
+    post "<%= omniauth_callback_test_path %>"
+    post <%= identity.route_scope %>_omniauth_registration_path, params: <%= omniauth_profile_params_literal %>
+    registration = <%= identity.pending_registration_class %>.last
+<%- end -%>
+    code = enqueued_jobs.reverse_each.filter_map { |job| job.to_s[/(\d{6}) is your/, 1] }.first
+    raise "verification code was not enqueued" unless code
+
+    [ registration, code ]
+  end
+end

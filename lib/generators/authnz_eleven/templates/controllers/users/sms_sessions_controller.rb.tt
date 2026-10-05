@@ -1,0 +1,53 @@
+class <%= identity.module_name %>::SmsSessionsController < <%= identity.controller_superclass %>
+  allow_unauthenticated_access
+  rate_limit(**<%= identity.config_reference %>.rate_limits.sms_sign_in, only: :create,
+    with: -> { redirect_to <%= identity.route_scope %>_sms_sign_in_path, alert: "Too many codes requested. Please try again later." })
+  before_action :set_pending_user, only: [ :edit, :update ]
+
+  SESSION_KEY = :pending_sms_sign_in
+
+  def new
+  end
+
+  def create
+<%- if captchable? -%>
+    unless captcha_verified?
+      flash.now[:alert] = "Captcha verification failed. Please try again."
+      return render :new, status: :unprocessable_entity
+    end
+
+<%- end -%>
+<%- if coy? -%>
+    <%= deferred_call(identity.class_name, :issue_sms_sign_in_code, "params[:phone].to_s") %>
+    session[SESSION_KEY] = params[:phone].to_s
+    redirect_to <%= identity.route_scope %>_sms_sign_in_code_path, notice: "We sent a code if that number has an account."
+<%- else -%>
+    unless <%= identity.class_name %>.issue_sms_sign_in_code(params[:phone])
+      return redirect_to <%= identity.route_scope %>_sms_sign_in_path, alert: "No account was found for that number."
+    end
+
+    session[SESSION_KEY] = params[:phone].to_s
+    redirect_to <%= identity.route_scope %>_sms_sign_in_code_path, notice: "We sent a code to that number."
+<%- end -%>
+  end
+
+  def edit
+  end
+
+  def update
+    unless (@user || <%= identity.class_name %>.new).verify_sms_challenge(params[:code])
+      flash.now[:alert] = "That code is incorrect or has expired."
+      return render :edit, status: :unprocessable_entity
+    end
+
+    session.delete(SESSION_KEY)
+    <%= sign_in_call("@user", via: :sms_code) %>
+    redirect_to after_authentication_url, status: :see_other
+  end
+
+  private
+
+  def set_pending_user
+    @user = <%= identity.class_name %>.find_by(phone: session[SESSION_KEY])
+  end
+end

@@ -1,0 +1,35 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<%% if @user.sms_enrolled_at? %>
+  <h1>Two-factor authentication</h1>
+
+  <p>Two-factor authentication is on. We'll text you a code when you sign in.</p>
+
+  <h2>Turn it off</h2>
+
+  <p>Your recovery codes are deleted once you have no second factor left.</p>
+
+  <%%= button_to "Turn off two-factor authentication", <%= identity.settings_helper_prefix %>_mfa_sms_path, method: :delete,
+        data: {turbo_confirm: "You'll no longer be asked for a code when you sign in. Continue?"} %>
+<%% else %>
+  <h1>Set up two-factor authentication</h1>
+
+  <p>We'll text a six-digit code to the number on your account, and ask for one
+  every time you sign in.</p>
+
+  <%%= button_to "Text me a code", <%= identity.settings_helper_prefix %>_mfa_sms_path %>
+
+  <%%# Disable Turbo because this successful response is the only page that reveals the newly generated recovery codes. %>
+  <%%= form_with url: <%= identity.settings_helper_prefix %>_mfa_sms_path, method: :patch, data: {turbo: false} do |form| %>
+    <div>
+      <%%= form.label :code, "Enter the code to confirm" %><br>
+      <%%= form.text_field :code, required: true, autocomplete: "one-time-code",
+            inputmode: "numeric", pattern: "[0-9]*" %>
+    </div>
+
+    <div><%%= form.submit "Enable two-factor authentication" %></div>
+  <%% end %>
+<%% end %>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

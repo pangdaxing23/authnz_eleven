@@ -1,0 +1,88 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Sign in</h1>
+
+<%- if password? -%>
+<%%= form_with url: <%= identity.route_scope %>_sign_in_path<%= captcha_form_options %> do |form| %>
+  <div>
+<%- if multi_login? -%>
+    <%%= form.label :login, "<%= login_keys_phrase.capitalize %>" %><br>
+    <%%= form.text_field :login, value: params[:login_hint], required: true, autofocus: true, autocomplete: "username" %>
+<%- else -%>
+    <%%= form.label :<%= login_field %> %><br>
+    <%%= form.<%= login_principal.field_helper %> :<%= login_field %>, value: params[:<%= login_hint_param %>], required: true, autofocus: true, autocomplete: "<%= login_principal.autocomplete %>" %>
+<%- end -%>
+  </div>
+
+  <div>
+    <%%= form.label :password %><br>
+    <%%= form.password_field :password, required: true, autocomplete: "current-password" %>
+  </div>
+<%- if rememberable? -%>
+
+  <div>
+    <%%= form.check_box :remember_me %>
+    <%%= form.label :remember_me, "Remember me on this device" %>
+  </div>
+<%- end -%>
+<%- if captchable? -%>
+
+  <%%= render "shared/captcha" %>
+<%- end -%>
+
+  <div><%%= form.submit "Sign in" %></div>
+<%% end %>
+<%- end -%>
+<%- if passkey? -%>
+
+<div data-controller="webauthn"
+     data-webauthn-challenge-url-value="<%%= new_<%= identity.route_scope %>_passkeys_session_path(format: :json) %>"
+     data-webauthn-verification-url-value="<%%= <%= identity.route_scope %>_passkeys_session_path %>">
+  <button data-webauthn-target="button" data-action="webauthn#getCredential">Sign in with a passkey</button>
+  <p data-webauthn-target="error" style="color: red" hidden></p>
+</div>
+<%- end -%>
+
+<%- if public_registration? || recoverable? -%>
+<p>
+<%- if public_registration? -%>
+  <%%= link_to "Sign up", <%= identity.route_scope %>_sign_up_path %><%= recoverable? ? " |" : "" %>
+<%- end -%>
+<%- if recoverable? -%>
+  <%%= link_to "Forgot your password?", <%= identity.route_scope %>_forgot_password_path %>
+<%- end -%>
+</p>
+<%- end -%>
+<%- if magic_link? -%>
+<p><%%= link_to "Sign in with a magic link", <%= identity.route_scope %>_new_magic_link_path %></p>
+<%- end -%>
+<%- if sms_code? -%>
+<p><%%= link_to "Sign in with a texted code", <%= identity.route_scope %>_sms_sign_in_path %></p>
+<%- end -%>
+<%- if omniauth? -%>
+<%- end -%>
+<%- if omniauth? || easy_dev_login? -%>
+
+<%%# Add sign-in buttons for configured OmniAuth providers above the development-only example. %>
+<%% if Rails.env.development? %>
+<fieldset style="color: gray; margin-top: 1em;">
+  <legend><em>Development sign-in</em></legend>
+<%- if omniauth? -%>
+  <%%= button_to "Sign in with Developer", "<%= omniauth_path_prefix %>/developer", data: {turbo: false} %>
+<%- end -%>
+<%- if easy_dev_login? && password? -%>
+  <p>Enter any user's <%= login_keys_phrase %> above. The password is ignored.</p>
+<%- elsif easy_dev_login? -%>
+  <%%= form_with url: <%= identity.route_scope %>_easy_dev_login_path do |form| %>
+<%- if multi_login? -%>
+    <%%= form.text_field :login, required: true, autocomplete: "off", placeholder: "<%= login_keys_phrase %>" %>
+<%- else -%>
+    <%%= form.<%= login_principal.field_helper %> :<%= login_field %>, required: true, autocomplete: "off", placeholder: "<%= login_field %>" %>
+<%- end -%>
+    <%%= form.submit "Sign in as" %>
+  <%% end %>
+<%- end -%>
+</fieldset>
+<%% end %>
+<%- end -%>

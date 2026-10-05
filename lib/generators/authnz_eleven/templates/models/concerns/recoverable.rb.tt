@@ -1,0 +1,19 @@
+module <%= identity.class_name %>::Recoverable
+  extend ActiveSupport::Concern
+
+  included do
+    generates_token_for :password_reset, expires_in: <%= identity.config_reference %>.tokens.password_reset do
+      [ password_salt&.last(10), email ]
+    end
+  end
+
+  class_methods do
+    def request_password_reset(email)
+      find_by(email:)&.tap(&:send_password_reset)
+    end
+  end
+
+  def send_password_reset
+    <%= identity.mailer_class %>.with(signed_id: generate_token_for(:password_reset), to: email).password_reset.deliver_later
+  end
+end

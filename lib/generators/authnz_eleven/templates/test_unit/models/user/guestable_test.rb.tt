@@ -1,0 +1,78 @@
+require "test_helper"
+
+class <%= identity.class_name %>::GuestableTest < ActiveSupport::TestCase
+  test "create_guest! builds a valid, persisted guest" do
+    guest = <%= identity.class_name %>.create_guest!
+
+    assert guest.persisted?
+    assert guest.guest?
+<%- if principals.email -%>
+    assert_match(/\Aguest_.+@example\.com\z/, guest.email)
+<%- end -%>
+<%- if principals.username -%>
+    assert_match(/\Aguest_[a-zA-Z0-9]+\z/, guest.username)
+<%- end -%>
+  end
+
+  test "create_guest! generates a unique guest each time" do
+    assert_not_equal <%= identity.class_name %>.create_guest!.<%= principals.display.column %>, <%= identity.class_name %>.create_guest!.<%= principals.display.column %>
+  end
+
+  test "guests scope returns only guest users" do
+    guest = <%= identity.class_name %>.create_guest!
+
+    assert_includes <%= identity.class_name %>.guests, guest
+    assert_not_includes <%= identity.class_name %>.guests, <%= identity.plural %>(:alice)
+  end
+
+  test "regular users are not guests" do
+    assert_not <%= identity.plural %>(:alice).guest?
+  end
+
+  test "expired_guests finds guests past config.guest.ttl, and only those" do
+    fresh = <%= identity.class_name %>.create_guest!
+    stale = <%= identity.class_name %>.create_guest!
+    stale.update_column(:created_at, (<%= identity.config_reference %>.guest.ttl + 1.day).ago)
+
+    assert_includes <%= identity.class_name %>.expired_guests, stale
+    assert_not_includes <%= identity.class_name %>.expired_guests, fresh
+  end
+
+  test "expired_guests never collects a real <%= identity.singular %>, however old" do
+    <%= identity.plural %>(:alice).update_column(:created_at, (<%= identity.config_reference %>.guest.ttl + 1.year).ago)
+
+    assert_not_includes <%= identity.class_name %>.expired_guests, <%= identity.plural %>(:alice)
+  end
+
+  test "absorb_guest takes the guest row with it, in one transaction" do
+    guest = <%= identity.class_name %>.create_guest!
+
+    assert_difference -> { <%= identity.class_name %>.guests.count }, -1 do
+      <%= identity.plural %>(:alice).absorb_guest(guest)
+    end
+    assert_nil <%= identity.class_name %>.find_by(id: guest.id)
+  end
+<%- if timeoutable? -%>
+
+  test "<%= identity.session_class %>.timed_out leaves idle guest sessions alone" do
+    guest_session = <%= identity.class_name %>.create_guest!.sessions.create!
+    <%= identity.singular %>_session = <%= identity.plural %>(:alice).sessions.create!
+    idle = (<%= identity.session_class %>.idle_timeout + 1.hour).ago
+    [ guest_session, <%= identity.singular %>_session ].each { |s| s.update_column(:updated_at, idle) }
+
+    assert_includes <%= identity.session_class %>.timed_out, <%= identity.singular %>_session
+    assert_not_includes <%= identity.session_class %>.timed_out, guest_session,
+      "guests do not time out; config.guest.ttl controls when they are collected"
+  end
+<%- end -%>
+<%- if trackable? -%>
+
+  test "a guest session records no sign-in event" do
+    guest = <%= identity.class_name %>.create_guest!
+
+    assert_no_difference -> { guest.events.count } do
+      guest.sessions.create!
+    end
+  end
+<%- end -%>
+end

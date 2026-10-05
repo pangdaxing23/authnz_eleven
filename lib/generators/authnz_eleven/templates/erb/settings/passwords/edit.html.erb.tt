@@ -1,0 +1,68 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<%- if password_nullable? -%>
+<h1><%%= @user.password_set? ? "Change your password" : "Add a password" %></h1>
+<%- else -%>
+<h1>Change your password</h1>
+<%- end -%>
+
+<%% if @user.errors.any? %>
+  <ul style="color: red">
+    <%% @user.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%- if password_nullable? -%>
+<%% if @user.password_set? %>
+<%- end -%>
+<%%= form_with url: <%= identity.settings_helper_prefix %>_password_path, method: :patch do |form| %>
+  <div>
+    <%%= form.label :password_challenge, "Current password" %><br>
+    <%%= form.password_field :password_challenge, autocomplete: "current-password" %>
+  </div>
+
+  <div>
+    <%%= form.label :password, "New password" %><br>
+    <%%= form.password_field :password, required: true, autocomplete: "new-password" %>
+  </div>
+
+  <div>
+    <%%= form.label :password_confirmation %><br>
+    <%%= form.password_field :password_confirmation, required: true, autocomplete: "new-password" %>
+  </div>
+
+  <div><%%= form.submit "Change password" %></div>
+<%% end %>
+<%- if password_nullable? -%>
+<%% else %>
+<%%= form_with url: <%= identity.settings_helper_prefix %>_password_path, method: :post do |form| %>
+  <div>
+    <%%= form.label :password %><br>
+    <%%= form.password_field :password, required: true, autocomplete: "new-password" %>
+  </div>
+
+  <div>
+    <%%= form.label :password_confirmation %><br>
+    <%%= form.password_field :password_confirmation, required: true, autocomplete: "new-password" %>
+  </div>
+
+  <div><%%= form.submit "Set password" %></div>
+<%% end %>
+<%% end %>
+<%- end -%>
+<%- if password_removable? -%>
+
+<%%# Never offer removal when the password is the account's last sign-in method. %>
+<%% if @user.password_set? && !@user.last_sign_in_method?(:password) %>
+<hr>
+<p>
+  You can sign in without a password. Removing it will prevent phishing.
+</p>
+<%%= button_to "Remove my password", <%= identity.settings_helper_prefix %>_password_path, method: :delete %>
+<%% end %>
+<%- end -%>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

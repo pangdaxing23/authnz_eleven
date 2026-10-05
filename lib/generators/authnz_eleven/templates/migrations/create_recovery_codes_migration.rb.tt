@@ -1,0 +1,11 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.recovery_codes_table %><%= primary_key_options %> do |t|
+      t.references :<%= identity.singular %>, null: false, foreign_key: true<%= reference_type_options %>
+      # Store only the digest; redemption deletes the row rather than marking it used.
+      t.string :code_digest, null: false
+
+      t.timestamps
+    end
+  end
+end

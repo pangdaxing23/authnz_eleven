@@ -1,0 +1,87 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Sign up</h1>
+
+<%% if <%= registration_form_object %>.errors.any? %>
+  <ul style="color: red">
+    <%% <%= registration_form_object %>.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%%= form_with url: <%= identity.route_scope %>_sign_up_path<%= captcha_form_options %> do |form| %>
+<%- if principals.username -%>
+  <div>
+    <%%= form.label :username %><br>
+    <%%= form.text_field :username, value: <%= registration_form_object %>.username, required: true, autofocus: true, autocomplete: "username" %>
+  </div>
+<%- end -%>
+<%- if principals.email -%>
+  <div>
+    <%%= form.label :email<%= principals.email.optional? ? %q(, "Email (optional)") : "" %> %><br>
+<%- if invitable? -%>
+    <%% if @pending_invitation&.email_addressed? %>
+      <%%= form.email_field :email, value: @pending_invitation.sent_to, readonly: true %>
+    <%% else %>
+      <%%= form.email_field :email, value: <%= registration_form_object %>.email<%= principals.email.required? ? ", required: true" : "" %><%= principals.username ? "" : ", autofocus: true" %>, autocomplete: "email" %>
+    <%% end %>
+<%- else -%>
+    <%%= form.email_field :email, value: <%= registration_form_object %>.email<%= principals.email.required? ? ", required: true" : "" %><%= principals.username ? "" : ", autofocus: true" %>, autocomplete: "email" %>
+<%- end -%>
+  </div>
+<%- end -%>
+<%- if principals.phone -%>
+  <div>
+    <%%= form.label :phone<%= principals.phone.optional? ? %q(, "Phone (optional)") : "" %> %><br>
+<%- if invitable? -%>
+    <%% if @pending_invitation&.phone_addressed? %>
+      <%%= form.telephone_field :phone, value: @pending_invitation.sent_to, readonly: true %>
+    <%% else %>
+      <%%= form.telephone_field :phone, value: <%= registration_form_object %>.phone<%= principals.phone.required? ? ", required: true" : "" %>, autocomplete: "tel", placeholder: "(415) 826-4001" %>
+    <%% end %>
+<%- else -%>
+    <%%= form.telephone_field :phone, value: <%= registration_form_object %>.phone<%= principals.phone.required? ? ", required: true" : "" %><%= (!principals.username && !principals.email) ? ", autofocus: true" : "" %>, autocomplete: "tel", placeholder: "(415) 826-4001" %>
+<%- end -%>
+  </div>
+<%- end -%>
+<%- if password_on_sign_up_form? -%>
+
+  <div>
+    <%%= form.label :password<%= password_form_optional? ? %(, "Password (optional)") : "" %> %><br>
+<%- if password_form_optional? -%>
+    <%%# There is more than one way to sign in, so this field is not required. %>
+<%- end -%>
+    <%%= form.password_field :password<%= password_form_optional? ? "" : ", required: true" %>, autocomplete: "new-password" %>
+<%- if password_form_optional? -%>
+<%- end -%>
+  </div>
+
+  <div>
+    <%%= form.label :password_confirmation %><br>
+    <%%= form.password_field :password_confirmation<%= password_form_optional? ? "" : ", required: true" %>, autocomplete: "new-password" %>
+  </div>
+<%- end -%>
+<%- if captchable? -%>
+
+  <%%= render "shared/captcha" %>
+<%- end -%>
+
+  <div><%%= form.submit "Sign up" %></div>
+<%% end %>
+<%- if omniauth? -%>
+
+<%- end -%>
+<%- if omniauth? -%>
+
+<%%# Add buttons for configured OmniAuth providers above this development-only example. %>
+<%% if Rails.env.development? %>
+<fieldset style="color: gray; margin-top: 1em;">
+  <legend><em>Development sign-up</em></legend>
+  <%%= button_to "Sign up with Developer", "<%= omniauth_path_prefix %>/developer", data: {turbo: false} %>
+</fieldset>
+<%% end %>
+<%- end -%>
+
+<p><%%= link_to "Sign in", <%= identity.route_scope %>_sign_in_path %></p>

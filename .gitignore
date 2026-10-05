@@ -1,0 +1,34 @@
+/.bundle/
+/.yardoc
+/_yardoc/
+/coverage/
+/doc/
+/plan/
+/pkg/
+/spec/reports/
+/tmp/
+/Gemfile.lock
+/scratchpad/golden/
+/scratchpad/after/
+/scratchpad/tmp_*/
+
+# test/dummy is a real bootable Rails app used to exercise the generator
+# (see test/generators). Keep the app itself checked in; ignore what any
+# Rails app's own .gitignore would ignore, plus the master key.
+/test/dummy/config/master.key
+/test/dummy/log/
+/test/dummy/tmp/
+/test/dummy/storage/
+/test/dummy/.bundle/
+/test/dummy/vendor/bundle/
+/test/dummy/db/*.sqlite3
+/test/dummy/db/*.sqlite3-*
+# Not committed: it pins the authnz_eleven PATH source to this machine's
+# absolute path (see test/dummy/Gemfile), which wouldn't resolve on another
+# machine or in CI. `bundle install` regenerates it locally in seconds from
+# the warm gem cache.
+/test/dummy/Gemfile.lock
+# Same reasoning, for Appraisal's per-Rails-version gemfiles (see
+# test/dummy/Appraisals): the generated *.gemfile is fine to commit, but its
+# *.gemfile.lock bakes in the same machine-local PATH source.
+/test/dummy/gemfiles/*.gemfile.lock

@@ -1,0 +1,69 @@
+AllCops:
+  TargetRubyVersion: 3.4
+  NewCops: disable
+  SuggestExtensions: false
+  Exclude:
+    - "scratchpad/**/*"
+    - "tmp/**/*"
+    # A real generated Rails app (fixture for the generator test suite) and
+    # its own scratch output — not this gem's source, follows its own
+    # (Rails-default) style, not ours.
+    - "test/dummy/**/*"
+
+# Feature-driven generation and wizard forms stay together rather than being
+# split into smaller methods solely to satisfy size and complexity limits.
+Metrics/AbcSize:
+  Exclude:
+    - "test/**/*"
+    - "lib/authnz_eleven/wizard.rb"
+    - "lib/generators/authnz_eleven/authnz_eleven_generator.rb"
+
+Metrics/ClassLength:
+  Exclude:
+    - "test/**/*"
+    - "lib/authnz_eleven/wizard.rb"
+    - "lib/generators/authnz_eleven/authnz_eleven_generator.rb"
+
+Metrics/MethodLength:
+  AllowedMethods:
+    - migration_field
+  Exclude:
+    - "test/**/*"
+    - "lib/authnz_eleven/wizard.rb"
+    - "lib/generators/authnz_eleven/authnz_eleven_generator.rb"
+
+Metrics/ModuleLength:
+  Exclude:
+    - "test/**/*"
+
+Metrics/CyclomaticComplexity:
+  Exclude:
+    - "lib/generators/authnz_eleven/authnz_eleven_generator.rb"
+
+Metrics/PerceivedComplexity:
+  Exclude:
+    - "lib/generators/authnz_eleven/authnz_eleven_generator.rb"
+
+# Keep template paths, emitted Ruby, and conditional feature lists readable.
+Layout/LineLength:
+  Exclude:
+    - "lib/generators/authnz_eleven/authnz_eleven_generator.rb"
+
+Style/GuardClause:
+  Exclude:
+    - "lib/generators/authnz_eleven/authnz_eleven_generator.rb"
+
+Style/IfUnlessModifier:
+  Exclude:
+    - "lib/generators/authnz_eleven/authnz_eleven_generator.rb"
+
+# Parallel case branches make the principal-specific behavior easy to compare.
+Style/HashLikeCase:
+  Exclude:
+    - "lib/authnz_eleven/principal.rb"
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes

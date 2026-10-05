@@ -1,0 +1,24 @@
+module <%= identity.class_name %>::Bannable
+  def banned?
+    banned_at.present? && (banned_until.nil? || banned_until.future?)
+  end
+
+  def ban!(expires_at: nil)
+    return if banned?
+    update!(banned_at: Time.current, banned_until: expires_at)
+<%- if trackable? -%>
+    record_event("<%= identity.singular %>.banned")
+<%- end -%>
+    sessions.destroy_all
+<%- if api_tokens? -%>
+    api_tokens.destroy_all
+<%- end -%>
+  end
+
+  def unban!
+    update!(banned_at: nil, banned_until: nil)
+<%- if trackable? -%>
+    record_event("<%= identity.singular %>.unbanned")
+<%- end -%>
+  end
+end

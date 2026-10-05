@@ -1,0 +1,28 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Finish signing up</h1>
+
+<%- if principals.email -%>
+<%% if @registration.email.present? %>
+  <p>Signing in as <%%= @registration.email %>. Choose the rest of your details to finish.</p>
+<%% end %>
+<%- end -%>
+
+<%% if @registration.errors.any? %>
+  <ul style="color: red">
+    <%% @registration.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%%= form_with url: <%= identity.route_scope %>_omniauth_registration_path do |form| %>
+<%- omniauth_registration_principals.each_with_index do |principal, i| -%>
+  <div>
+    <%%= form.label :<%= principal.column %> %><br>
+    <%%= form.<%= principal.field_helper %> :<%= principal.column %>, value: @registration.<%= principal.column %>, required: true<%= i.zero? ? ", autofocus: true" : "" %>, autocomplete: "<%= principal.autocomplete %>" %>
+  </div>
+<%- end -%>
+  <div><%%= form.submit "Complete sign up" %></div>
+<%% end %>

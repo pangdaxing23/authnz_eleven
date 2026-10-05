@@ -1,0 +1,22 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Verify your phone</h1>
+
+<p>
+  Enter the six-digit code we texted to <%%= <%= identity.current_class %>.user.pending_phone %> to confirm the number is yours.
+</p>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_phone_verification_path, method: :patch do |form| %>
+  <div>
+    <%%= form.label :code, "Verification code" %><br>
+    <%%= form.text_field :code, required: true, autocomplete: "one-time-code",
+          inputmode: "numeric", pattern: "[0-9]*", autofocus: true %>
+  </div>
+
+  <div><%%= form.submit "Verify phone" %></div>
+<%% end %>
+
+<%%= button_to "Send me a code", <%= identity.settings_helper_prefix %>_phone_verification_path, method: :post %>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

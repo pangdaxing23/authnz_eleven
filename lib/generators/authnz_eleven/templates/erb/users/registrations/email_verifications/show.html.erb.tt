@@ -1,0 +1,34 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Confirm your email</h1>
+
+<p>Confirm <%%= @registration.email %> to finish creating your account.</p>
+<%- if principals.username -%>
+
+<%% if @registration.errors.any? %>
+  <ul style="color: red">
+    <%% @registration.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%%= form_with url: <%= identity.route_scope %>_verify_email_path(sid: params[:sid]), method: :patch do |form| %>
+  <%%# Username may have been taken in between time the registration was made and the email was verified. %>
+  <%% if @registration.errors.any? %>
+    <div>
+      <%%= form.label :username %><br>
+      <%%= form.text_field :username, value: @registration.username, required: true, autofocus: true, autocomplete: "username" %>
+    </div>
+  <%% else %>
+    <%%= form.hidden_field :username, value: @registration.username %>
+  <%% end %>
+
+  <div><%%= form.submit "Confirm my email" %></div>
+<%% end %>
+<%- else -%>
+
+<%%# Confirm with a non-GET request so mail scanners cannot create and sign in an account. %>
+<%%= button_to "Confirm my email", <%= identity.route_scope %>_verify_email_path(sid: params[:sid]), method: :patch %>
+<%- end -%>

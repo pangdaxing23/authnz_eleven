@@ -1,0 +1,5 @@
+class <%= identity.settings_controller %> < <%= identity.controller_superclass %>
+<%- if teams? -%>
+  skip_before_action :require_team
+<%- end -%>
+end

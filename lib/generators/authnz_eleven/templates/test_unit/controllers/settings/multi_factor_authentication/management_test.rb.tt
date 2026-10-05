@@ -1,0 +1,222 @@
+require "test_helper"
+
+class <%= identity.settings_module %>::MultiFactorAuthentication::ManagementTest < ActionDispatch::IntegrationTest
+<%- if sms_second_factor? -%>
+  include ActiveJob::TestHelper
+
+<%- end -%>
+  setup { @user = <%= identity.plural %>(:bob) }
+<%- if sms_second_factor? -%>
+
+  test "enrolling by text turns MFA on only for a correct code" do
+    sign_in_as @user
+    get new_<%= identity.settings_helper_prefix %>_mfa_sms_path
+    assert_response :success
+
+    post <%= identity.settings_helper_prefix %>_mfa_sms_path
+
+    patch <%= identity.settings_helper_prefix %>_mfa_sms_path, params: { code: "000000" }
+    assert_not @user.reload.sms_enrolled_at?, "a wrong code must not enable MFA"
+
+    patch <%= identity.settings_helper_prefix %>_mfa_sms_path, params: { code: issued_code }
+    assert @user.reload.sms_enrolled_at?
+
+    assert_response :success
+    assert_equal <%= identity.config_reference %>.second_factor.recovery_code_count,
+                 response.body.scan(%r{<code>([a-z0-9]+)</code>}).flatten.length
+  end
+
+  test "turning the texted factor off clears the flag and the recovery codes with it" do
+    sign_in_as @user
+    enable_sms
+    assert @user.recovery_codes.any?
+
+    delete <%= identity.settings_helper_prefix %>_mfa_sms_path
+    assert_not @user.reload.sms_enrolled_at?
+    assert_empty @user.recovery_codes.reload,
+                 "codes guarding nothing are live sign-in secrets"
+  end
+<%- end -%>
+<%- if totp? -%>
+
+  test "enrolling turns MFA on only for a correct code" do
+    sign_in_as @user
+    get new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path
+    assert_response :success
+
+    post <%= identity.settings_helper_prefix %>_mfa_authenticator_path, params: { code: "000000" }
+    assert_not @user.reload.totp_enrolled_at?, "a wrong code must not enable MFA"
+
+    post <%= identity.settings_helper_prefix %>_mfa_authenticator_path, params: { code: ROTP::TOTP.new(@user.totp_secret).now }
+    assert @user.reload.totp_enrolled_at?
+
+    assert_response :success
+    assert_equal <%= identity.config_reference %>.second_factor.recovery_code_count,
+                 response.body.scan(%r{<code>([a-z0-9]+)</code>}).flatten.length
+  end
+<%- if both_second_factors? && admin_mfa_gate? && password_rotatable? -%>
+
+  test "TOTP enrollment removes the obsolete instruction before rendering recovery codes" do
+    @user = <%= identity.plural %>(:alice)
+    @user.update_column(:password_changed_at, (<%= identity.config_reference %>.password.maximum_age + 1.day).ago)
+    sign_in_as @user
+
+    post <%= identity.settings_helper_prefix %>_mfa_authenticator_path,
+      params: { code: ROTP::TOTP.new(@user.totp_secret).now }
+
+    assert_response :success
+    assert_select "h1", "Save your recovery codes"
+    assert_nil flash[:alert]
+  end
+<%- end -%>
+<%- if both_second_factors? -%>
+
+  test "enrolling an authenticator leaves recovery codes that already exist alone" do
+    sign_in_as @user
+    @user.webauthn_credentials.create!(name: "Key", external_id: "ext-1", public_key: "pk"<%= factor_attr(:second_factor) %>)
+    before = <%= identity.recovery_code_class %>.regenerate_for(@user)
+
+    post <%= identity.settings_helper_prefix %>_mfa_authenticator_path, params: { code: ROTP::TOTP.new(@user.totp_secret).now }
+
+    assert @user.reload.totp_enrolled_at?
+    assert before.all? { |code| <%= identity.recovery_code_class %>.redeem(user: @user, code:) },
+           "a set the user is holding must survive enrolling another factor"
+  end
+<%- end -%>
+<%- end -%>
+
+  test "regenerating replaces your recovery codes" do
+    sign_in_as @user
+    post <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+    before = @user.recovery_codes.pluck(:code_digest).sort
+    assert_not_empty before
+
+    post <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+    assert_not_equal before, @user.recovery_codes.reload.pluck(:code_digest).sort
+  end
+
+  test "the codes are shown once, are real, and are never shown again" do
+    sign_in_as @user
+    post <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+    assert_response :success
+
+    codes = response.body.scan(%r{<code>([a-z0-9]+)</code>}).flatten
+    assert_equal <%= identity.config_reference %>.second_factor.recovery_code_count, codes.length
+
+    get <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+    assert_response :success
+    assert_no_match codes.first, response.body, "a later visit must not show them again"
+    assert_equal codes.length, @user.recovery_codes.count, "looking must not mint a new set"
+
+    assert <%= identity.recovery_code_class %>.redeem(user: @user, code: codes.first)
+  end
+
+  test "the forms that mint recovery codes opt out of Turbo" do
+    sign_in_as @user
+<%- if totp? -%>
+
+    get new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path
+    assert_match 'data-turbo="false"', response.body
+<%- end -%>
+<%- if sms_second_factor? -%>
+
+    get new_<%= identity.settings_helper_prefix %>_mfa_sms_path
+    assert_match 'data-turbo="false"', response.body
+<%- end -%>
+
+<%- if security_keys? -%>
+<%- if sudoable? -%>
+<%= test_clear_sudo_body %>
+<%- end -%>
+    get new_<%= identity.settings_helper_prefix %>_mfa_security_key_path
+    assert_match 'data-turbo="false"', response.body
+
+<%- end -%>
+    get <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+    assert_match 'data-turbo="false"', response.body
+  end
+
+  test "every URL the codes render at answers GET" do
+    sign_in_as @user
+<%- if totp? -%>
+
+    get <%= identity.settings_helper_prefix %>_mfa_authenticator_path
+    assert_response :redirect, "reloading the enrollment result must not 404"
+<%- end -%>
+<%- if sms_second_factor? -%>
+
+    get <%= identity.settings_helper_prefix %>_mfa_sms_path
+    assert_response :redirect, "reloading the enrollment result must not 404"
+<%- end -%>
+
+<%- if security_keys? -%>
+    get <%= identity.settings_helper_prefix %>_mfa_security_keys_path
+    assert_response :success, "reloading the security-key enrollment result must not 404"
+
+<%- end -%>
+    get <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+    assert_response :success, "reloading the regenerate result must not 404"
+  end
+<%- if totp? -%>
+
+  test "a code submitted while enrolled checks the app and changes nothing" do
+    sign_in_as @user
+    enable_mfa
+    before = @user.recovery_codes.pluck(:code_digest).sort
+
+    post <%= identity.settings_helper_prefix %>_mfa_authenticator_path, params: { code: ROTP::TOTP.new(@user.totp_secret).now }
+    assert_redirected_to new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path
+    assert_equal "That code is correct.", flash[:notice]
+    assert_equal before, @user.recovery_codes.reload.pluck(:code_digest).sort
+    assert @user.reload.totp_enrolled_at?
+  end
+
+  test "a wrong code while enrolled says so, and still changes nothing" do
+    sign_in_as @user
+    enable_mfa
+    before = @user.recovery_codes.pluck(:code_digest).sort
+
+    post <%= identity.settings_helper_prefix %>_mfa_authenticator_path, params: { code: "000000" }
+    assert_redirected_to new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path
+    assert_match "didn't match", flash[:alert]
+    assert_equal before, @user.recovery_codes.reload.pluck(:code_digest).sort
+    assert @user.reload.totp_enrolled_at?, "a failed check must not turn MFA off"
+  end
+
+  test "turning MFA off clears the flag and the recovery codes with it" do
+    sign_in_as @user
+    enable_mfa
+    assert @user.recovery_codes.any?
+
+    delete <%= identity.settings_helper_prefix %>_mfa_authenticator_path
+    assert_not @user.reload.totp_enrolled_at?
+    assert_empty @user.recovery_codes.reload,
+                 "codes guarding nothing are live sign-in secrets"
+  end
+<%- end -%>
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+<%- if totp? -%>
+
+  def enable_mfa
+    post <%= identity.settings_helper_prefix %>_mfa_authenticator_path, params: { code: ROTP::TOTP.new(@user.totp_secret).now }
+    @user.reload
+  end
+<%- end -%>
+<%- if sms_second_factor? -%>
+
+  def enable_sms
+    post <%= identity.settings_helper_prefix %>_mfa_sms_path
+    patch <%= identity.settings_helper_prefix %>_mfa_sms_path, params: { code: issued_code }
+    @user.reload
+  end
+
+  def issued_code
+    enqueued_jobs.reverse.filter_map { |job| job.to_s[/(\d{6}) is your/, 1] }.first
+  end
+<%- end -%>
+end

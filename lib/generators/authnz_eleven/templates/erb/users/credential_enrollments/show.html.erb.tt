@@ -1,0 +1,21 @@
+<p style="color: red"><%%= alert %></p>
+
+<h1>Finish setting up your account</h1>
+
+<%- if pre_account_password_enrollment? -%>
+<p><%%= link_to "Choose a password", <%= identity.route_scope %>_new_registration_password_path %></p>
+<%- end -%>
+<%- if pre_account_passkey_enrollment? -%>
+<p><%%= link_to "Create a passkey", <%= identity.route_scope %>_new_registration_passkey_path %></p>
+<%- end -%>
+<%- if pre_account_provider_enrollment? -%>
+<%%# Connecting a provider is the only way to finish this sign-up, so add a button
+    per configured provider here, each with ?registration_intent=1 in its URL as below. %>
+<%% if Rails.env.development? %>
+<fieldset style="color: gray; margin-top: 1em;">
+  <legend><em>Development</em></legend>
+  <%%# OmniAuth returns query params, as request.env["omniauth.params"]. %>
+  <%%= button_to "Continue with Developer", "<%= omniauth_path_prefix %>/developer?registration_intent=1", data: { turbo: false } %>
+</fieldset>
+<%% end %>
+<%- end -%>

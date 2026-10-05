@@ -1,0 +1,27 @@
+class <%= identity.settings_module %>::OmniauthIdentitiesController < <%= identity.settings_controller %>
+  before_action :set_identity, only: :destroy
+
+  def index
+    @omniauth_identities = <%= identity.current_class %>.user.omniauth_identities.order(:provider, :created_at)
+  end
+
+  def destroy
+    if <%= identity.current_class %>.user.last_sign_in_method?(:omniauth)
+      return redirect_to <%= identity.settings_helper_prefix %>_omniauth_identities_path,
+        alert: "This is the only way into your account. Link another before removing this one.", status: :see_other
+    end
+
+    @omniauth_identity.destroy!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:connected_account_unlinked)
+<%- end -%>
+    redirect_to <%= identity.settings_helper_prefix %>_omniauth_identities_path, notice: "Unlinked #{@omniauth_identity.provider_name}.",
+      status: :see_other
+  end
+
+  private
+
+  def set_identity
+    @omniauth_identity = <%= identity.current_class %>.user.omniauth_identities.find(params[:id]) # Scope the lookup to the signed-in user to prevent unlinking another account's provider identity.
+  end
+end

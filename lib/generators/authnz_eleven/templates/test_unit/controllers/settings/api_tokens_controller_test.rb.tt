@@ -1,0 +1,61 @@
+require "test_helper"
+
+class <%= identity.settings_module %>::ApiTokensControllerTest < ActionDispatch::IntegrationTest
+  setup { @user = <%= identity.plural %>(:bob) }
+
+  test "shows the secret once and stores only its digest" do
+    sign_in_as @user
+
+    assert_difference "@user.api_tokens.count", 1 do
+      post <%= identity.settings_helper_prefix %>_api_tokens_path,
+        params: { name: "Deployment"<%= sudo_test_params_pair %> }
+    end
+    assert_response :created
+    assert_includes response.headers["Cache-Control"], "no-store"
+    token = @user.api_tokens.last
+    secret = response.body[/ae11_[A-Za-z0-9_-]{43}/]
+    assert secret
+    assert_equal token, <%= identity.api_token_class %>.authenticate(secret)
+    refute_includes token.attributes.values, secret
+
+    get <%= identity.settings_helper_prefix %>_api_tokens_path
+    assert_response :success
+    refute_includes response.body, secret
+    assert_includes response.body, "Deployment"
+  end
+
+  test "an unauthenticated visitor cannot create a token" do
+    assert_no_difference "<%= identity.api_token_class %>.count" do
+      post <%= identity.settings_helper_prefix %>_api_tokens_path, params: { name: "Unexpected" }
+    end
+    assert_response :redirect
+  end
+
+  test "revoking a token invalidates it" do
+    sign_in_as @user
+    token, secret = <%= identity.api_token_class %>.issue!(user: @user, name: "Old")
+
+    assert_difference "@user.api_tokens.count", -1 do
+      delete <%= identity.settings_helper_prefix %>_api_token_path(token)
+    end
+    assert_redirected_to <%= identity.settings_helper_prefix %>_api_tokens_path
+    assert_nil <%= identity.api_token_class %>.authenticate(secret)
+  end
+
+  test "cannot revoke someone else's token" do
+    sign_in_as @user
+    stranger = <%= identity.plural %>(:alice)
+    token, = <%= identity.api_token_class %>.issue!(user: stranger, name: "Other")
+
+    assert_no_difference "<%= identity.api_token_class %>.count" do
+      delete <%= identity.settings_helper_prefix %>_api_token_path(token)
+    end
+    assert_response :not_found
+  end
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

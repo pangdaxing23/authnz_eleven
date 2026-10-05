@@ -1,0 +1,9 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Sign in</h1>
+
+<p>Your sign-in link is ready.</p>
+
+<%%# Keep session creation behind a non-GET request because mail scanners and link previewers may follow the link. %>
+<%%= button_to "Sign me in", <%= identity.route_scope %>_magic_link_path(sid: params[:sid]), method: :patch %>

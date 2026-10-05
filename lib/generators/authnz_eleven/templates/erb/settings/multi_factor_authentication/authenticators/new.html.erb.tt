@@ -1,0 +1,57 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<%% if @user.totp_enrolled_at? %>
+  <h1>Two-factor authentication</h1>
+
+  <p>Two-factor authentication is on. You'll be asked for a code from your
+  authenticator app when you sign in.</p>
+
+  <h2>Add another device</h2>
+
+  <p>Scan this with any authenticator app to pair it with this account. Every paired
+  app shows the same code.</p>
+
+  <%%= raw @qr_svg %>
+
+  <p>Or enter this setup key manually:</p>
+  <pre><%%= @provisioning_uri %></pre>
+
+  <%%= form_with url: <%= identity.settings_helper_prefix %>_mfa_authenticator_path, method: :post do |form| %>
+    <div>
+      <%%= form.label :code, "Enter a code from the app to check that it works" %><br>
+      <%%= form.text_field :code, required: true, autocomplete: "one-time-code", inputmode: "numeric" %>
+    </div>
+
+    <div><%%= form.submit "Check this app" %></div>
+  <%% end %>
+
+  <h2>Turn it off</h2>
+
+  <p>Turning off two-factor authentication invalidates every authenticator app you've paired. Your recovery
+  codes are deleted once you have no second factor left.</p>
+
+  <%%= button_to "Turn off two-factor authentication", <%= identity.settings_helper_prefix %>_mfa_authenticator_path, method: :delete,
+        data: {turbo_confirm: "You'll no longer be asked for a code when you sign in. Continue?"} %>
+<%% else %>
+  <h1>Set up two-factor authentication</h1>
+
+  <p>Scan this QR code with your authenticator app:</p>
+
+  <%%= raw @qr_svg %>
+
+  <p>Or enter this setup key manually:</p>
+  <pre><%%= @provisioning_uri %></pre>
+
+  <%%# Disable Turbo because this successful response is the only page that reveals the newly generated recovery codes. %>
+  <%%= form_with url: <%= identity.settings_helper_prefix %>_mfa_authenticator_path, method: :post, data: {turbo: false} do |form| %>
+    <div>
+      <%%= form.label :code, "Enter the 6-digit code to confirm" %><br>
+      <%%= form.text_field :code, required: true, autofocus: true, autocomplete: "one-time-code", inputmode: "numeric" %>
+    </div>
+
+    <div><%%= form.submit "Enable two-factor authentication" %></div>
+  <%% end %>
+<%% end %>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

@@ -1,0 +1,70 @@
+require "net/http"
+
+module Sms
+  module Twilio
+    class DeliveryError < StandardError; end
+    class TransientError < DeliveryError; end
+
+    API_HOST = "api.twilio.com".freeze
+    API_VERSION = "2010-04-01".freeze
+    OPEN_TIMEOUT = 5
+    READ_TIMEOUT = 10
+
+    class << self
+      def deliver(to:, body:)
+        raise DeliveryError, "Twilio credentials are not configured" if account_sid.blank? || auth_token.blank?
+
+        response = post(to: to, body: body)
+        return true if response.is_a?(Net::HTTPSuccess)
+        raise TransientError, "Twilio responded #{response.code}" if retryable?(response)
+
+        raise DeliveryError, "Twilio responded #{response.code} (error #{error_code(response)})"
+      end
+
+      private
+
+      def post(to:, body:)
+        uri = URI("https://#{API_HOST}/#{API_VERSION}/Accounts/#{account_sid}/Messages.json")
+        params = { "To" => to, "Body" => body }.merge(sender_param)
+
+        request = Net::HTTP::Post.new(uri)
+        request.basic_auth(account_sid, auth_token)
+        request.set_form_data(params)
+
+        Net::HTTP.start(uri.hostname, uri.port, use_ssl: true,
+          open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT) { |http| http.request(request) }
+      rescue Net::ReadTimeout
+        raise DeliveryError, "Twilio did not answer in time; the message may have been sent"
+      rescue Net::OpenTimeout, Net::WriteTimeout, SocketError, SystemCallError => e
+        raise TransientError, "Twilio unreachable (#{e.class})"
+      end
+
+      def retryable?(response) = response.is_a?(Net::HTTPServerError) || response.code == "429"
+
+      def error_code(response)
+        JSON.parse(response.body)["code"]
+      rescue StandardError
+        "unknown"
+      end
+
+      def sender_param
+        if messaging_service_sid.present?
+          { "MessagingServiceSid" => messaging_service_sid }
+        elsif from_number.present?
+          { "From" => from_number }
+        else
+          raise DeliveryError, "Set TWILIO_MESSAGING_SERVICE_SID or TWILIO_FROM_NUMBER"
+        end
+      end
+
+      def account_sid = credential("TWILIO_ACCOUNT_SID", :account_sid)
+      def auth_token = credential("TWILIO_AUTH_TOKEN", :auth_token)
+      def messaging_service_sid = credential("TWILIO_MESSAGING_SERVICE_SID", :messaging_service_sid)
+      def from_number = credential("TWILIO_FROM_NUMBER", :from_number)
+
+      def credential(env_key, credentials_key)
+        ENV[env_key].presence || Rails.application.credentials.dig(:twilio, credentials_key)
+      end
+    end
+  end
+end

@@ -1,0 +1,9 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.teams_table %><%= primary_key_options %> do |t|
+      t.string :name, null: false
+
+      t.timestamps
+    end
+  end
+end

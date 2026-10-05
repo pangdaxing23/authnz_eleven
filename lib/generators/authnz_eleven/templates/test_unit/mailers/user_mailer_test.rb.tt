@@ -1,0 +1,88 @@
+require "test_helper"
+
+class <%= identity.mailer_class %>Test < ActionMailer::TestCase
+  setup { @user = <%= identity.plural %>(:alice) }
+<%- if security_notifications? -%>
+
+  test "security_notification describes the change without including credentials" do
+    mail = <%= identity.mailer_class %>.with(
+      to: @user.email,
+      event: :password_changed,
+      occurred_at: Time.zone.local(2026, 1, 2, 3, 4),
+      ip_address: "192.0.2.1",
+      user_agent: "Example Browser"
+    ).security_notification
+
+    assert_equal [ @user.email ], mail.to
+    assert_equal "Your password was changed", mail.subject
+    assert_includes mail.body.encoded, "This security change was made to your account."
+    assert_includes mail.body.encoded, "192.0.2.1"
+    assert_includes mail.body.encoded, "Example Browser"
+  end
+<%- end -%>
+<%- if recoverable? -%>
+
+  test "password_reset links to the reset form" do
+    token = @user.generate_token_for(:password_reset)
+    mail = <%= identity.mailer_class %>.with(signed_id: token, to: @user.email).password_reset
+
+    assert_equal [ @user.email ], mail.to
+    assert_equal "Reset your password", mail.subject
+    expected_url = Rails.application.routes.url_helpers.<%= identity.route_scope %>_reset_password_url(sid: token, host: "example.com")
+    assert_includes mail.body.encoded, expected_url
+  end
+<%- end -%>
+<%- if email_change_verification? -%>
+
+  test "email_change_verification describes and links the change" do
+    @user.update!(pending_email: "moved@example.com")
+    token = @user.generate_token_for(:email_change_verification)
+    mail = <%= identity.mailer_class %>.with(signed_id: token, to: @user.pending_email).email_change_verification
+
+    assert_equal [ "moved@example.com" ], mail.to
+    assert_equal "Verify your new email address", mail.subject
+    expected_url = Rails.application.routes.url_helpers.<%= identity.route_scope %>_verify_email_change_url(sid: token, host: "example.com")
+    assert_includes mail.body.encoded, expected_url
+  end
+<%- end -%>
+<%- if email_gated_registration? -%>
+
+  test "registration_email_verification describes registration" do
+    registration = <%= identity.pending_registration_class %>.new(email: "fresh@example.com"<%= staged_registration_invitation(%("fresh@example.com")) %>)
+    registration.save!(validate: false)
+    token = registration.generate_token_for(:registration_email_verification)
+    mail = <%= identity.mailer_class %>.with(signed_id: token, to: registration.email).registration_email_verification
+
+    assert_equal [ "fresh@example.com" ], mail.to
+    assert_equal "Verify your email to finish signing up", mail.subject
+    expected_url = Rails.application.routes.url_helpers.<%= identity.route_scope %>_verify_email_url(sid: token, host: "example.com")
+    assert_includes mail.body.encoded, expected_url
+  end
+<%- end -%>
+<%- if magic_link? -%>
+
+  test "magic_link links to the sign in url" do
+    token = @user.generate_magic_link
+    mail = <%= identity.mailer_class %>.with(signed_id: token, to: @user.email).magic_link
+
+    assert_equal [ @user.email ], mail.to
+    assert_equal "Your sign in link", mail.subject
+    expected_url = Rails.application.routes.url_helpers.<%= identity.route_scope %>_magic_link_url(sid: token, host: "example.com")
+    assert_includes mail.body.encoded, expected_url
+  end
+<%- end -%>
+<%- if email_invitable? -%>
+
+  test "invitation names the inviter and links to the accept page" do
+    invitation = <%= identity.invitation_class %>.create!(sent_to: "invitee@example.com", inviter: @user)
+    token = invitation.generate_token_for(:invitation)
+    mail = <%= identity.mailer_class %>.with(invitation: invitation, signed_id: token, to: invitation.sent_to).invitation
+
+    assert_equal [ "invitee@example.com" ], mail.to
+    assert_equal "You've been invited to #{<%= identity.config_reference %>.app_name}", mail.subject
+    assert_includes mail.body.encoded, @user.<%= principals.display.column %>
+    expected_url = Rails.application.routes.url_helpers.<%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation" : "accept_invitation" %>_url(token: token, host: "example.com")
+    assert_includes mail.body.encoded, expected_url
+  end
+<%- end -%>
+end

@@ -1,0 +1,24 @@
+module TeamSlug
+  PREFIX = %r{\A/(\d+)(?=/|\z)}
+
+  class Extractor
+    def initialize(app)
+      @app = app
+    end
+
+    def call(env)
+      request = ActionDispatch::Request.new(env)
+
+      if (match = PREFIX.match(request.path_info)) && (team = Team.find_by(id: match[1]))
+        request.script_name = "#{request.script_name}/#{match[1]}"
+        request.path_info   = match.post_match.presence || "/"
+
+        Current.team = team
+      end
+
+      @app.call(request.env)
+    end
+  end
+end
+
+Rails.application.config.middleware.insert_after Rack::TempfileReaper, TeamSlug::Extractor

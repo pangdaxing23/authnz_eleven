@@ -1,0 +1,11 @@
+<p>Hi,</p>
+
+<%- if teams? -%>
+<p><%%= @invitation.inviter.<%= principals.display.column %> %> has invited you to join their team. Use the link
+below to accept:</p>
+<%- else -%>
+<p><%%= @invitation.inviter.<%= principals.display.column %> %> has invited you to <%%= <%= identity.config_reference %>.app_name %>.
+Use the link below to accept:</p>
+<%- end -%>
+
+<p><%%= link_to "Accept invitation", <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation" : "accept_invitation" %>_url(token: @signed_id) %></p>

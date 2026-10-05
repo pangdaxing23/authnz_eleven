@@ -1,0 +1,27 @@
+class <%= identity.settings_module %>::MultiFactorAuthentication::RecoveryCodesController < <%= identity.settings_controller %>
+  before_action :no_store, only: :create
+  before_action :set_user
+
+  def index
+    @remaining = @user.recovery_codes.count
+  end
+
+  def create
+    @codes = <%= identity.recovery_code_class %>.regenerate_for(@user)
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:recovery_codes_generated)
+<%- end -%>
+  end
+
+  def complete
+    redirect_to interrupted_destination(
+      otherwise: <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+    ), status: :see_other
+  end
+
+  private
+
+  def set_user
+    @user = <%= identity.current_class %>.user
+  end
+end

@@ -1,0 +1,29 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= @error %></p>
+
+<h1>API tokens</h1>
+<p>Use a token to access your application's API. Tokens expire after 90 days. Keep them secret; anyone holding one can access your API as you.</p>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_api_tokens_path, data: { turbo: false } do |form| %>
+  <div>
+    <%%= form.label :name, "Token name" %><br>
+    <%%= form.text_field :name, required: true, maxlength: 100, placeholder: "My script" %>
+  </div>
+<%- if sudoable? -%>
+  <%%= render "<%= identity.sudo_partial %>", form:, submit: "Create token" %>
+<%- else -%>
+  <%%= form.submit "Create token" %>
+<%- end -%>
+<%% end %>
+
+<ul>
+  <%% @api_tokens.each do |token| %>
+    <li>
+      <%%= token.name %> (created <%%= token.created_at %>, expires <%%= token.expires_at %>)
+      <%%= button_to "Revoke", <%= identity.settings_helper_prefix %>_api_token_path(token), method: :delete,
+            data: { turbo_confirm: "Revoke this token?" } %>
+    </li>
+  <%% end %>
+</ul>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

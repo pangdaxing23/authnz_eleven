@@ -1,0 +1,5 @@
+class <%= identity.settings_module %>::Authentications::EventsController < <%= identity.settings_controller %>
+  def index
+    @events = <%= identity.current_class %>.user.events.recent_first
+  end
+end

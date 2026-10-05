@@ -1,0 +1,70 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.table %><%= primary_key_options %> do |t|
+<%- principals.each do |principal| -%>
+<%- if principal.type == :phone -%>
+<%- if guest_excused_from_phone? || (guestable? && principal.required?) -%>
+      # Nullable because guests and incomplete accounts may not have a phone yet.
+<%- end -%>
+      <%= principal.migration_field(nullable: phone_column_nullable?) %>
+<%- else -%>
+      <%= principal.migration_field %>
+<%- end -%>
+<%- end -%>
+<%- principals.select(&:functional_unique_index?).each do |principal| -%>
+      t.index "(LOWER(<%= principal.column %>))", unique: true, name: "index_<%= identity.table %>_on_lower_<%= principal.column %>"
+<%- end -%>
+<%- if password? -%>
+<%- if password_nullable? -%>
+      # Nullable because there are multiple sign in methods.
+      t.string :password_digest
+<%- else -%>
+      t.string :password_digest, null: false
+<%- end -%>
+<%- end -%>
+<%- if password_rotatable? -%>
+      t.datetime :password_changed_at
+<%- end -%>
+<%- if deadboltable? -%>
+      t.integer  :failed_attempts, null: false, default: 0
+      t.datetime :deadbolted_at
+<%- end -%>
+<%- if bannable? -%>
+      t.datetime :banned_at
+      t.datetime :banned_until
+<%- end -%>
+<%- if email_change_verification? -%>
+
+      t.string :pending_email
+<%- end -%>
+<%- if phone_change_verification? -%>
+
+      t.string :pending_phone
+<%- end -%>
+<%- if totp? -%>
+
+      t.datetime :totp_enrolled_at
+      t.string   :totp_secret, null: false
+      t.datetime :totp_last_used_at
+<%- end -%>
+<%- if sms_second_factor? -%>
+
+      t.datetime :sms_enrolled_at
+<%- end -%>
+<%- if adminable? -%>
+
+      t.boolean :admin, null: false, default: false
+<%- end -%>
+<%- if webauthn_credentials? -%>
+
+      t.string :webauthn_handle, null: false
+<%- end -%>
+<%- if last_seenable? -%>
+
+      t.datetime :last_seen_at
+<%- end -%>
+
+      t.timestamps
+    end
+  end
+end

@@ -1,0 +1,86 @@
+class <%= identity.settings_module %>::MultiFactorAuthentication::SecurityKeysController < <%= identity.settings_controller %>
+<%- if sudoable? -%>
+  require_sudo_within <%= identity.config_reference %>.sudo.window,
+    message: "Please confirm it's you before adding a security key.", only: :new
+<%- end -%>
+<%- if admin_mfa_gate? -%>
+  skip_impediments
+<%- end -%>
+  before_action :set_user
+  before_action :set_security_key, only: %i[edit update destroy]
+
+  def index
+    @security_keys = <%= second_factor_keys_expr("@user") %>
+  end
+
+  def new
+    respond_to do |format|
+      format.html
+      format.json do
+        issue_webauthn_challenge(WebAuthn::Credential.options_for_create(
+          user: { id: @user.webauthn_handle, name: @user.<%= principals.display.column %> },
+          exclude: @user.webauthn_credentials.pluck(:external_id)
+        ))
+      end
+    end
+  end
+
+  def edit
+  end
+
+  def create
+    @user.transaction do
+      @security_key = @user.webauthn_credentials.create!(
+        **verify_webauthn_registration(JSON.parse(params[:credential].to_s), user_verification: false),
+        name: "Security key"<%= factor_attr(:second_factor) %>
+      )
+      @codes = <%= identity.recovery_code_class %>.regenerate_for(@user) if @user.recovery_codes.none?
+    end
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:security_key_added)
+<%- end -%>
+
+    if @codes
+      flash.delete(:alert)
+      flash.now[:notice] = "Your security key has been added. Save your recovery codes."
+      render "<%= identity.settings_path_prefix %>/multi_factor_authentication/recovery_codes/create"
+    else
+      redirect_to interrupted_destination(
+        otherwise: edit_<%= identity.settings_helper_prefix %>_mfa_security_key_path(@security_key)
+      ), notice: "Your security key has been added. Your existing recovery codes still work.",
+         status: :see_other
+    end
+  rescue WebAuthn::Error, JSON::ParserError
+    flash.now[:alert] = "We couldn't add that security key. Please try again."
+    render :new, status: :unprocessable_entity
+  end
+
+  def update
+    @security_key.update!(name: params[:name])
+    redirect_to <%= identity.settings_helper_prefix %>_mfa_security_keys_path, notice: "Renamed your security key.",
+      status: :see_other
+  end
+
+  def destroy
+    @user.transaction do
+      @security_key.destroy!
+      @user.discard_orphaned_recovery_codes!
+    end
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:security_key_removed)
+<%- end -%>
+
+    redirect_to <%= identity.settings_helper_prefix %>_mfa_security_keys_path, notice: "Removed #{@security_key.name}.",
+      status: :see_other
+  end
+
+  private
+
+  def set_user
+    @user = <%= identity.current_class %>.user
+  end
+
+  def set_security_key
+    @security_key = <%= second_factor_keys_expr("@user") %>.find(params[:id])
+  end
+end

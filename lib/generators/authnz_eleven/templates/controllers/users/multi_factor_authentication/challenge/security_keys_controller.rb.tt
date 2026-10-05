@@ -1,0 +1,34 @@
+class <%= identity.module_name %>::MultiFactorAuthentication::Challenge::SecurityKeysController < <%= identity.controller_superclass %>
+  require_unauthenticated_access
+  before_action :set_user
+
+  def new
+    respond_to do |format|
+      format.html
+      format.json do
+        issue_webauthn_challenge(WebAuthn::Credential.options_for_get(allow: <%= second_factor_keys_expr("@user") %>.pluck(:external_id)))
+      end
+    end
+  end
+
+  def create
+    verify_webauthn_assertion(params.expect(credential: {}), from: <%= second_factor_keys_expr("@user") %>)
+
+<%- if rememberable? -%>
+    start_new_session_for(@user, via: :second_factor, remember: session.delete(:<%= session_key(:remember_me) %>))
+<%- else -%>
+    start_new_session_for(@user, via: :second_factor)
+<%- end -%>
+    render json: { status: "ok", location: after_authentication_url }, status: :created
+  rescue WebAuthn::Error, ActiveRecord::RecordNotFound
+    render json: { error: "We couldn't verify that security key. Please try again." }, status: :unprocessable_entity
+  end
+
+  private
+
+  def set_user
+    @user = <%= identity.class_name %>.find_by_token_for!(:authentication_challenge, session[:<%= session_key(:challenge_token) %>])
+  rescue ActiveSupport::MessageVerifier::InvalidSignature, ActiveRecord::RecordNotFound
+    redirect_to <%= identity.route_scope %>_sign_in_path, alert: "Your sign-in challenge has expired. Please sign in again."
+  end
+end

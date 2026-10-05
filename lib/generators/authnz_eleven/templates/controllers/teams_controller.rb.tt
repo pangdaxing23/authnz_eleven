@@ -1,0 +1,38 @@
+class <%= identity.nested_module("TeamsController") %> < <%= identity.controller_superclass %>
+  skip_impediments<%= " only: %i[index new create]" if scope_teams? %>
+
+  def index
+    @teams = <%= identity.current_class %>.user.teams
+  end
+<%- if scope_teams? -%>
+
+  def show
+  end
+<%- end -%>
+
+  def new
+    @team = <%= identity.team_class %>.new
+  end
+
+  def create
+    @team = <%= identity.team_class %>.new(team_params)
+    @team.memberships.build(<%= identity.singular %>: <%= identity.current_class %>.user)
+
+    if @team.save
+<%- if session_carries_team? -%>
+      set_session_team!(@team)
+      redirect_to interrupted_destination(otherwise: <%= identity.nested_helper("root_path") %>), notice: "#{@team.name} created.", status: :see_other
+<%- elsif scope_teams? -%>
+      redirect_to <%= team_root_helper %>(team_id: @team), notice: "#{@team.name} created."
+<%- else -%>
+      redirect_to root_url(script_name: "/#{@team.id}"), notice: "#{@team.name} created."
+<%- end -%>
+    else
+      render :new, status: :unprocessable_entity
+    end
+  end
+
+  private
+
+  def team_params = params.expect(<%= identity.teams_table.singularize %>: [ :name ])
+end

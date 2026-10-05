@@ -1,0 +1,98 @@
+class <%= identity.mailer_class %> < ApplicationMailer
+  self.delivery_job = AuthnzElevenMailDeliveryJob
+<%- if security_notifications? -%>
+
+  SECURITY_NOTIFICATION_SUBJECTS = {
+    password_set: "Your password was set",
+    password_changed: "Your password was changed",
+    password_reset: "Your password was reset",
+    password_removed: "Your password was removed",
+    passkey_added: "A passkey was added",
+    passkey_removed: "A passkey was removed",
+    security_key_added: "A security key was added",
+    security_key_removed: "A security key was removed",
+    authenticator_enabled: "An authenticator was enabled",
+    authenticator_disabled: "An authenticator was disabled",
+    sms_mfa_enabled: "SMS two-factor authentication was enabled",
+    sms_mfa_disabled: "SMS two-factor authentication was disabled",
+    recovery_codes_generated: "Your recovery codes were generated",
+    connected_account_linked: "A connected account was linked",
+    connected_account_unlinked: "A connected account was unlinked",
+    email_changed: "Your email address was changed",
+    phone_changed: "Your phone number was changed",
+    session_revoked: "A session was signed out",
+<%- if api_tokens? -%>
+    api_token_created: "An API token was created",
+    api_token_revoked: "An API token was revoked",
+<%- end -%>
+    sessions_revoked_by_admin: "An administrator signed out your sessions",
+    second_factor_reset_by_admin: "An administrator reset your two-factor authentication",
+    deadbolt_cleared_by_admin: "An administrator restored password sign-in",
+    account_suspended: "An administrator suspended your account",
+    account_restored: "An administrator restored your account",
+    account_deleted: "Your account was deleted"
+  }.freeze
+
+  def self.send_security_notification(event, to: <%= identity.current_class %>.user.email)
+    return if to.blank?
+
+    with(
+      to:, event:, occurred_at: Time.current,
+      ip_address: <%= identity.current_class %>.ip_address,
+      user_agent: <%= identity.current_class %>.user_agent
+    ).security_notification.deliver_later
+  end
+<%- end -%>
+<%- if email_gated_registration? -%>
+
+  def registration_email_verification
+    @signed_id = params[:signed_id]
+
+    mail to: params[:to], subject: "Verify your email to finish signing up"
+  end
+<%- end -%>
+<%- if email_change_verification? -%>
+
+  def email_change_verification
+    @signed_id = params[:signed_id]
+
+    mail to: params[:to], subject: "Verify your new email address"
+  end
+<%- end -%>
+<%- if recoverable? -%>
+
+  def password_reset
+    @signed_id = params[:signed_id]
+
+    mail to: params[:to], subject: "Reset your password"
+  end
+<%- end -%>
+<%- if magic_link? -%>
+
+  def magic_link
+    @signed_id = params[:signed_id]
+
+    mail to: params[:to], subject: "Your sign in link"
+  end
+<%- end -%>
+<%- if security_notifications? -%>
+
+  def security_notification
+    @subject = SECURITY_NOTIFICATION_SUBJECTS.fetch(params[:event].to_sym)
+    @occurred_at = params[:occurred_at]
+    @ip_address = params[:ip_address]
+    @user_agent = params[:user_agent]
+
+    mail to: params[:to], subject: @subject
+  end
+<%- end -%>
+<%- if email_invitable? -%>
+
+  def invitation
+    @invitation = params[:invitation]
+    @signed_id = params[:signed_id]
+
+    mail to: params[:to], subject: "You've been invited to #{<%= identity.config_reference %>.app_name}"
+  end
+<%- end -%>
+end

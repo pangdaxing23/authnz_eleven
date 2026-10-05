@@ -1,0 +1,117 @@
+module <%= identity.authentication_concern %>::Sudoable
+  extend ActiveSupport::Concern
+
+<%- unless single_sudo_bar? -%>
+  included do
+    helper_method :sudo_strategy
+  end
+
+<%- end -%>
+  class_methods do
+    def require_sudo(message: "Please confirm it's you before continuing.", **options)
+      before_action(**options) { enforce_sudo(message:) }
+    end
+
+    def require_sudo_within(window, message: "Please confirm it's you before continuing.", **options)
+      before_action(**options) { enforce_sudo_within(window, message:) }
+    end
+  end
+
+  private
+
+  def enforce_sudo(message:)
+    return if sudo_confirmed?
+
+    redirect_back_or_to <%= identity.settings_helper_prefix %>_path, alert: message, status: :see_other
+  end
+
+  def enforce_sudo_within(window, message:)
+<%- if fail_open_sudo? -%>
+    return if sudo_strategy == :open
+<%- end -%>
+    return if <%= identity.current_class %>.session&.sudo_at&.> window.ago
+
+    session[:<%= session_key(:sudo_proceed_to) %>] = request.url
+    session[:<%= session_key(:sudo_message) %>]    = message
+    redirect_to new_<%= identity.route_scope %>_sudo_path
+  end
+
+  def sudo_confirmed?
+    return false unless sudo_attempts_left?
+
+<%- if single_sudo_bar? -%>
+    confirmed = <%= sudo_subject %>.authenticate(params[:sudo_password].to_s)
+<%- else -%>
+    confirmed =
+      case sudo_strategy
+<%- if sudo_bars.include?(:webauthn) -%>
+      when :webauthn then verify_sudo_assertion(params[:sudo_credential])
+<%- end -%>
+<%- if sudo_bars.include?(:password) -%>
+      when :password then <%= sudo_subject %>.authenticate(params[:sudo_password].to_s)
+<%- end -%>
+<%- if sudo_bars.include?(:totp) -%>
+      when :totp then verify_sudo_totp(params[:sudo_code])
+<%- end -%>
+      else true
+      end
+<%- end -%>
+
+    if confirmed
+      <%= identity.current_class %>.session.touch(:sudo_at)
+      Rails.cache.delete(sudo_attempt_key)
+    end
+
+    confirmed
+  end
+<%- unless single_sudo_bar? -%>
+
+  def sudo_strategy
+<%- if sudo_bars.include?(:webauthn) -%>
+    return :webauthn if <%= sudo_subject %>.webauthn_credentials.any?
+<%- end -%>
+<%- if unconditional_password_bar? -%>
+    :password
+<%- else -%>
+<%- if sudo_bars.include?(:password) -%>
+    return :password if <%= sudo_subject %>.password_set?
+<%- end -%>
+<%- if sudo_bars.include?(:totp) -%>
+    return :totp if <%= sudo_subject %>.totp_enrolled_at?
+<%- end -%>
+    :open
+<%- end -%>
+  end
+<%- end -%>
+
+  def sudo_attempts_left?
+    attempts = Rails.cache.increment(sudo_attempt_key, 1, expires_in: <%= identity.config_reference %>.rate_limits.sudo[:within]).to_i
+    attempts <= <%= identity.config_reference %>.rate_limits.sudo[:to]
+  end
+
+  def sudo_attempt_key
+    "sudo-attempts:#{<%= identity.current_class %>.session.cache_key}"
+  end
+<%- if sudo_bars.include?(:totp) -%>
+
+  def verify_sudo_totp(code)
+    return false if code.blank?
+
+    totp = ROTP::TOTP.new(<%= sudo_subject %>.totp_secret, issuer: <%= identity.config_reference %>.app_name)
+    used_at = totp.verify(code, drift_behind: <%= identity.config_reference %>.second_factor.totp_drift_behind,
+      after: <%= sudo_subject %>.totp_last_used_at)
+    return false unless used_at
+
+    <%= sudo_subject %>.update!(totp_last_used_at: Time.at(used_at))
+    true
+  end
+<%- end -%>
+<%- if sudo_bars.include?(:webauthn) -%>
+
+  def verify_sudo_assertion(credential_json)
+    verify_webauthn_assertion(JSON.parse(credential_json.to_s), from: <%= sudo_subject %>.webauthn_credentials).present?
+  rescue WebAuthn::Error, ActiveRecord::RecordNotFound, JSON::ParserError
+    false
+  end
+<%- end -%>
+end

@@ -1,0 +1,38 @@
+module <%= identity.class_name %>::SmsChallengeable
+  def issue_sms_challenge(to: phone)
+    return false if to.blank?
+
+    code = format("%06d", SecureRandom.random_number(1_000_000))
+    Rails.cache.write(sms_challenge_key(:code), { code: code, to: to }, expires_in: <%= identity.config_reference %>.tokens.sms_code)
+    Rails.cache.delete(sms_challenge_key(:tries))
+
+    Sms.deliver_later(to: to, body: "#{code} is your #{<%= identity.config_reference %>.app_name} verification code.")
+    true
+  end
+
+  def verify_sms_challenge(submitted, to: phone)
+    tries = Rails.cache.increment(sms_challenge_key(:tries), 1, expires_in: <%= identity.config_reference %>.tokens.sms_code)
+    challenge = Rails.cache.read(sms_challenge_key(:code))
+    return false if tries.nil? || tries > <%= identity.config_reference %>.sms.max_attempts
+    return false unless challenge && challenge[:to] == to
+    return false unless ActiveSupport::SecurityUtils.secure_compare(challenge[:code], submitted.to_s)
+
+    clear_sms_challenge
+    true
+  end
+
+  def sms_challenge?(to: phone)
+    to.present? && Rails.cache.read(sms_challenge_key(:code))&.fetch(:to) == to
+  end
+
+  def clear_sms_challenge
+    Rails.cache.delete(sms_challenge_key(:code))
+    Rails.cache.delete(sms_challenge_key(:tries))
+  end
+
+  private
+
+  def sms_challenge_key(kind)
+    "sms-#{kind}:#{self.class.name}:#{id}"
+  end
+end

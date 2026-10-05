@@ -1,0 +1,7 @@
+<p>Hi,</p>
+
+<p>Confirm this email address to finish signing up.</p>
+
+<p><%%= link_to "Confirm email", <%= identity.route_scope %>_verify_email_url(sid: @signed_id) %></p>
+
+<p>If you didn't ask for this, you can ignore this message.</p>

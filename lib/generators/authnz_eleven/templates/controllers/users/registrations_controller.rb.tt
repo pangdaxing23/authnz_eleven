@@ -1,0 +1,112 @@
+class <%= identity.module_name %>::RegistrationsController < <%= identity.controller_superclass %>
+<%- if typed_staged_registration? -%>
+  include <%= identity.authentication_concern %>::Registering
+
+<%- end -%>
+  require_unauthenticated_access
+  rate_limit(**<%= identity.config_reference %>.rate_limits.sign_up, only: :create,
+    with: -> { redirect_to <%= identity.route_scope %>_sign_up_path, alert: "Too many sign-up attempts. Please try again later." })
+<%- if invite_only? -%>
+  before_action :require_invitation_to_register
+<%- end -%>
+
+  def new
+<%- if invitable? -%>
+    @pending_invitation = pending_invitation
+<%- end -%>
+<%- if typed_staged_registration? -%>
+    @registration = <%= identity.pending_registration_class %>.new
+<%- else -%>
+    @user = <%= identity.class_name %>.new
+<%- end -%>
+  end
+
+<%- if typed_staged_registration? -%>
+  def create
+    @registration = <%= identity.pending_registration_class %>.new(registration_params)
+<%- if captchable? -%>
+    @registration.validate
+    @registration.errors.add(:base, "Captcha verification failed. Please try again.") unless captcha_verified?
+    return render :new, status: :unprocessable_entity if @registration.errors.any?
+<%- else -%>
+    return render :new, status: :unprocessable_entity unless @registration.valid?
+<%- end -%>
+<%- if !coy? -%>
+
+    if (taken = taken_identifier)
+      @registration.errors.add(taken, "has already been taken")
+      return render :new, status: :unprocessable_entity
+    end
+<%- end -%>
+
+    @registration.save!
+    session[:<%= pending_registration_session_key %>] = @registration.id
+
+    advance(@registration)
+  end
+
+  private
+<%- if !coy? -%>
+
+  def taken_identifier
+<%- if principals.email -%>
+    return :email if @registration.email.present? && <%= identity.class_name %>.exists?(email: @registration.email)
+<%- end -%>
+<%- if principals.phone -%>
+    return :phone if @registration.phone.present? && <%= identity.class_name %>.exists?(phone: @registration.phone)
+<%- end -%>
+
+    nil
+  end
+<%- end -%>
+
+  def registration_params
+    <%= sign_up_params_expression %>
+  end
+<%- else -%>
+  def create
+    @user = <%= identity.class_name %>.new(user_params)
+<%- if captchable? -%>
+    @user.validate
+    @user.errors.add(:base, "Captcha verification failed. Please try again.") unless captcha_verified?
+    return render :new, status: :unprocessable_entity if @user.errors.any?
+<%- else -%>
+    return render :new, status: :unprocessable_entity unless @user.valid?
+<%- end -%>
+
+    if @user.save
+<%- if invitable? -%>
+      pending_invitation&.accept(@user)
+<%- end -%>
+      <%= sign_in_call("@user", via: :registration, may_challenge: false) %>
+      redirect_to after_authentication_url, status: :see_other
+    else
+      render :new, status: :unprocessable_entity
+    end
+  rescue ActiveRecord::RecordNotUnique
+<%- if principals.email -%>
+    @user.errors.add(:email, "has already been taken")
+<%- elsif principals.phone -%>
+    @user.errors.add(:phone, "has already been taken")
+<%- else -%>
+    @user.errors.add(:base, "That account already exists")
+<%- end -%>
+    render :new, status: :unprocessable_entity
+  end
+
+  private
+
+  def user_params
+    <%= sign_up_params_expression %>
+  end
+<%- end -%>
+<%- if invitable? -%>
+
+  def with_invitation(permitted)
+    invitation = pending_invitation
+    return permitted unless invitation
+
+    permitted.merge(<%= invitation_channel_pair %><%= ", invitation:" if typed_staged_registration? %>)
+  end
+<%- end -%>
+end

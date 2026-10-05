@@ -1,0 +1,25 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Two-factor authentication</h1>
+
+<p>Type the six-digit code we texted you.</p>
+
+<%%= form_with url: <%= identity.route_scope %>_mfa_challenge_sms_path, method: :patch do |form| %>
+  <div>
+    <%%= form.label :code, "Security code" %><br>
+    <%%= form.text_field :code, required: true, autocomplete: "one-time-code",
+          inputmode: "numeric", pattern: "[0-9]*", autofocus: true %>
+  </div>
+
+  <div><%%= form.submit "Verify" %></div>
+<%% end %>
+
+<%%= button_to "Didn't get it? Send another code", <%= identity.route_scope %>_mfa_challenge_sms_path %>
+
+<p><%%= link_to "Use a recovery code instead", new_<%= identity.route_scope %>_mfa_challenge_recovery_codes_path %></p>
+<%- second_factor_alternatives(:sms).each do |clause, label, path| -%>
+<%% if <%= clause %> %>
+  <p><%%= link_to "<%= label %>", <%= path %> %></p>
+<%% end %>
+<%- end -%>

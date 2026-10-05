@@ -1,0 +1,13 @@
+alice_acme:
+  <%= identity.singular %>: alice
+  team: acme
+
+bob_acme:
+  <%= identity.singular %>: bob
+  team: acme
+<%- if adminable? -%>
+
+carol_acme:
+  <%= identity.singular %>: carol
+  team: acme
+<%- end -%>

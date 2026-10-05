@@ -1,0 +1,16 @@
+class <%= identity.membership_class %> < ApplicationRecord
+  belongs_to :<%= identity.singular %>
+  belongs_to :team
+
+  validates :<%= identity.foreign_key %>, uniqueness: { scope: :team_id }
+<%- if session_carries_team? -%>
+
+  after_destroy :clear_active_team_from_sessions
+
+  private
+
+  def clear_active_team_from_sessions
+    <%= identity.session_class %>.where(<%= identity.foreign_key %>:, team_id:).update_all(team_id: nil)
+  end
+<%- end -%>
+end

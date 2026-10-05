@@ -1,0 +1,41 @@
+class <%= identity.recovery_code_class %> < ApplicationRecord
+  belongs_to :<%= identity.singular %>
+
+  class << self
+    def regenerate_for(user)
+      codes = Array.new(<%= identity.config_reference %>.second_factor.recovery_code_count) { generate_code }
+
+      transaction do
+        user.recovery_codes.delete_all
+        user.recovery_codes.create!(codes.map { |code| { code: code } })
+      end
+
+      codes
+    end
+
+    def redeem(user:, code:)
+      return false unless user.recovery_codes.where(code_digest: digest(code)).delete_all == 1
+
+<%- if trackable? -%>
+      user.record_event(
+        "<%= identity.singular %>.recovery_code_used",
+        actor: user,
+        data: { remaining: user.recovery_codes.count }
+      )
+<%- end -%>
+      true
+    end
+
+    def generate_code
+      SecureRandom.alphanumeric(<%= identity.config_reference %>.second_factor.recovery_code_length).downcase
+    end
+
+    def digest(code)
+      OpenSSL::HMAC.hexdigest("SHA256", Rails.application.secret_key_base, code.to_s) # An HMAC prevents a database leak from exposing recovery codes that can be used to bypass the second factor.
+    end
+  end
+
+  def code=(plaintext)
+    self.code_digest = self.class.digest(plaintext)
+  end
+end

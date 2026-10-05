@@ -1,0 +1,6 @@
+class <%= identity.nested_module("ActiveTeamsController") %> < <%= identity.controller_superclass %>
+  def create
+    set_session_team!(<%= identity.current_class %>.user.teams.find(params[:team_id]))
+    redirect_to <%= identity.nested_helper("root_path") %>, notice: "Switched team."
+  end
+end

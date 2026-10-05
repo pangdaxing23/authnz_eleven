@@ -1,0 +1,102 @@
+require "test_helper"
+<%- confirming_completes = sign_up_fixture_can_sign_in? &&(invite_only? || !phone_gated_registration?) -%>
+
+class <%= identity.module_name %>::Registrations::EmailVerificationsControllerTest < ActionDispatch::IntegrationTest
+  test "opening the link is inert" do
+    registration, token = begin_registration
+
+    assert_no_changes -> { registration.reload.email_verified_at } do
+      get <%= identity.route_scope %>_verify_email_path(sid: token)
+    end
+
+    assert_response :success
+    assert <%= identity.pending_registration_class %>.exists?(registration.id)
+  end
+
+  test "only the browser that started the registration can confirm it" do
+    registration, token = begin_registration
+    other_browser = open_session
+
+    assert_no_changes -> { registration.reload.email_verified_at } do
+      other_browser.patch <%= identity.route_scope %>_verify_email_path(sid: token)
+    end
+    assert_equal <%= identity.route_scope %>_sign_up_url, other_browser.response.location
+  end
+
+  test "a sign-up left untouched past its lifetime cannot be confirmed" do
+    registration, token = begin_registration
+    registration.update_column(:updated_at, <%= identity.config_reference %>.tokens.pending_registration.ago - 1.minute)
+
+    assert_no_changes -> { registration.reload.email_verified_at } do
+      patch <%= identity.route_scope %>_verify_email_path(sid: token)
+    end
+    assert_redirected_to <%= registration_entry_path %>
+  end
+
+  test "confirmation timestamps the verified address before completing or enrolling" do
+    registration, token = begin_registration
+
+<%- if confirming_completes -%>
+    assert_difference -> { <%= identity.class_name %>.count }, 1 do
+      patch <%= identity.route_scope %>_verify_email_path(sid: token)
+    end
+    assert_not <%= identity.pending_registration_class %>.exists?(registration.id)
+    assert cookies[:<%= identity.cookie_name %>].present?
+<%- else -%>
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      patch <%= identity.route_scope %>_verify_email_path(sid: token)
+    end
+    assert registration.reload.email_verified_at?
+    assert <%= identity.pending_registration_class %>.exists?(registration.id)
+<%- end -%>
+  end
+<%- if confirming_completes -%>
+
+  test "an address taken since sign-up is sent to sign in, not into that account" do
+    registration, token = begin_registration
+    <%= identity.plural %>(:alice).update_column(:email, registration.email)
+
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      patch <%= identity.route_scope %>_verify_email_path(sid: token)
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_not <%= identity.pending_registration_class %>.exists?(registration.id)
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+<%- end -%>
+<%- if principals.username -%>
+
+  test "a username taken before confirming can be replaced on the confirmation page" do
+    registration, token = begin_registration
+    <%= identity.plural %>(:alice).update_column(:username, registration.username)
+
+    patch <%= identity.route_scope %>_verify_email_path(sid: token), params: { username: registration.username }
+    assert_response :unprocessable_entity
+    assert_not registration.reload.email_verified_at?
+
+    replacement = "#{registration.username}_2"
+    patch <%= identity.route_scope %>_verify_email_path(sid: token), params: { username: replacement }
+<%- if confirming_completes -%>
+    assert <%= identity.class_name %>.exists?(username: replacement)
+<%- else -%>
+    assert_equal replacement, registration.reload.username
+    assert registration.email_verified_at?
+<%- end -%>
+  end
+<%- end -%>
+
+  private
+
+  def begin_registration
+    attributes = <%= sign_up_fixture_literal(indent: 4) %>
+<%- if password_form_optional? -%>
+    attributes.merge!(password: "", password_confirmation: "")
+<%- end -%>
+<%- if invite_only? -%>
+    <%= accept_test_invitation(%("+14158264077")) %>
+<%- end -%>
+    post <%= identity.route_scope %>_sign_up_path, params: attributes
+    registration = <%= identity.pending_registration_class %>.last
+    [ registration, registration.generate_token_for(:registration_email_verification) ]
+  end
+end

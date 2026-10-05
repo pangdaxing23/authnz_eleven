@@ -1,0 +1,87 @@
+class <%= identity.settings_module %>::MultiFactorAuthentication::AuthenticatorsController < <%= identity.settings_controller %>
+<%- if admin_mfa_gate? -%>
+  skip_impediments
+<%- end -%>
+  before_action :no_store, only: %i[new create]
+  before_action :set_user
+  before_action :set_totp, only: %i[new create]
+
+  def new
+    @provisioning_uri = @totp.provisioning_uri(@user.<%= principals.display.column %>)
+    @qr_svg = RQRCode::QRCode.new(@provisioning_uri).as_svg(
+      module_size: 4,
+      standalone: true,
+      use_path: true
+    )
+  end
+
+  def create
+    return just_check_code if @user.totp_enrolled_at? # Do not regenerate recovery codes if just checking code.
+
+    unless @totp.verify(params[:code], drift_behind: <%= identity.config_reference %>.second_factor.totp_drift_behind)
+      return redirect_to new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path, alert: "That code is incorrect."
+    end
+
+    should_mint = @user.recovery_codes.none?
+
+    @user.transaction do
+      @user.update!(totp_enrolled_at: Time.current)
+      @codes = <%= identity.recovery_code_class %>.regenerate_for(@user) if should_mint
+<%- if trackable? -%>
+      @user.record_event("<%= identity.singular %>.two_factor_enabled")
+<%- end -%>
+    end
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:authenticator_enabled)
+<%- end -%>
+
+    if should_mint
+      flash.delete(:alert)
+      flash.now[:notice] = "Two-factor authentication is on."
+      render "<%= identity.settings_path_prefix %>/multi_factor_authentication/recovery_codes/create"
+    else
+      redirect_to interrupted_destination(
+        otherwise: new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path
+      ), notice: "Two-factor authentication is on. Your existing recovery codes still work.",
+         status: :see_other
+    end
+  end
+
+  def show
+    redirect_to <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+  end
+
+  def destroy
+    @user.transaction do
+      @user.update!(totp_enrolled_at: nil, totp_secret: ROTP::Base32.random)
+      @user.discard_orphaned_recovery_codes!
+<%- if trackable? -%>
+      @user.record_event("<%= identity.singular %>.two_factor_disabled")
+<%- end -%>
+    end
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:authenticator_disabled)
+<%- end -%>
+
+    redirect_to <%= identity.settings_helper_prefix %>_path, notice: "Two-factor authentication is off.", status: :see_other
+  end
+
+  private
+
+  def just_check_code
+    if @totp.verify(params[:code], drift_behind: <%= identity.config_reference %>.second_factor.totp_drift_behind)
+      redirect_to new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path, notice: "That code is correct."
+    else
+      redirect_to new_<%= identity.settings_helper_prefix %>_mfa_authenticator_path,
+        alert: "That code didn't match. Check you scanned the whole QR code, then try again."
+    end
+  end
+
+  def set_user
+    @user = <%= identity.current_class %>.user
+  end
+
+  def set_totp
+    @totp = ROTP::TOTP.new(@user.totp_secret, issuer: <%= identity.config_reference %>.app_name)
+  end
+end

@@ -1,0 +1,15 @@
+module Sms
+  class << self
+    def deliver_later(to:, body:)
+      SmsDeliveryJob.perform_later(to: to, body: body)
+    end
+
+    def deliver(to:, body:)
+      provider.deliver(to: to, body: body)
+    end
+
+    def provider
+      Rails.env.production? ? Twilio : Log
+    end
+  end
+end

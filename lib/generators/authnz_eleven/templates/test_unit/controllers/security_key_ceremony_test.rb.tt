@@ -1,0 +1,218 @@
+require "test_helper"
+require "webauthn/fake_client"
+
+class <%= identity.module_name %>::SecurityKeyCeremonyTest < ActionDispatch::IntegrationTest
+  setup do
+    @user = <%= identity.plural %>(:bob)
+    @authenticator = WebAuthn::FakeAuthenticator.new
+    @client = WebAuthn::FakeClient.new(
+      WebAuthn.configuration.allowed_origins.first,
+      authenticator: @authenticator
+    )
+  end
+
+  test "a security key enrolls as a possession-only second factor" do
+    sign_in @user
+
+    assert_difference -> { @user.webauthn_credentials.count }, 1 do
+      enroll_security_key
+    end
+    assert_response :success
+    assert_equal "text/html", response.media_type
+
+    codes = response.body.scan(%r{<code>([a-z0-9]+)</code>}).flatten
+    assert_equal <%= identity.config_reference %>.second_factor.recovery_code_count, codes.length
+    assert_equal codes.length, @user.recovery_codes.count
+    assert <%= identity.recovery_code_class %>.redeem(user: @user, code: codes.first)
+
+    get <%= identity.settings_helper_prefix %>_mfa_security_keys_path
+    assert_response :success
+    codes.each { |code| assert_not_includes response.body, code }
+  end
+
+  test "the enrollment form opts out of Turbo" do
+    sign_in @user
+    clear_sudo_bar
+    get new_<%= identity.settings_helper_prefix %>_mfa_security_key_path
+
+    assert_select 'form[action=?][method="post"][data-turbo="false"]', <%= identity.settings_helper_prefix %>_mfa_security_keys_path
+  end
+
+  test "another key preserves the existing recovery codes" do
+    sign_in @user
+    enroll_security_key
+    codes = @user.recovery_codes.pluck(:code_digest).sort
+    assert_not_empty codes
+
+    assert_difference -> { @user.webauthn_credentials.count }, 1 do
+      enroll_security_key
+    end
+
+    assert_response :see_other
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_mfa_security_key_path(@user.webauthn_credentials.order(:id).last)
+    assert_equal codes, @user.recovery_codes.reload.pluck(:code_digest).sort
+  end
+
+  test "a recovery-code failure rolls back enrollment" do
+    sign_in @user
+    credential = security_key_credential
+
+    assert_no_difference -> { @user.webauthn_credentials.count } do
+      failing_recovery_codes do
+        assert_raises(RuntimeError) do
+          post <%= identity.settings_helper_prefix %>_mfa_security_keys_path, params: { credential: credential.to_json }
+        end
+      end
+    end
+    assert_empty @user.recovery_codes.reload
+  end
+
+  test "malformed enrollment renders a retry form" do
+    sign_in @user
+    security_key_credential
+
+    [ nil, "not json" ].each do |malformed|
+      assert_no_difference -> { @user.webauthn_credentials.count } do
+        post <%= identity.settings_helper_prefix %>_mfa_security_keys_path, params: { credential: malformed }
+      end
+      assert_response :unprocessable_entity
+      assert_select '[data-webauthn-target="field"]'
+      assert_select "p", text: "We couldn't add that security key. Please try again."
+    end
+
+    enroll_security_key
+    assert_response :success
+  end
+<%- if admin_mfa_gate? && password_rotatable? -%>
+
+  test "MFA enrollment displays recovery codes before the next requirement takes over" do
+    @user = <%= identity.plural %>(:alice)
+    @user.update_column(:password_changed_at, (<%= identity.config_reference %>.password.maximum_age + 1.day).ago)
+    sign_in @user
+
+    get <%= identity.settings_helper_prefix %>_path
+    assert_redirected_to <%= admin_mfa_hold_path %>
+
+    enroll_security_key
+    assert_response :success
+    assert @user.reload.second_factor_enrolled?
+    assert_not @user.password_fresh?
+    assert_select "h1", "Save your recovery codes"
+    assert_select "li code", count: <%= identity.config_reference %>.second_factor.recovery_code_count
+    assert_nil flash[:alert]
+
+    post complete_<%= identity.settings_helper_prefix %>_mfa_recovery_codes_path
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_password_path
+  end
+<%- end -%>
+
+  test "a replayed enrollment is refused, not an error" do
+    sign_in @user
+    credential = enroll_security_key
+    assert_response :success
+
+    assert_no_difference -> { @user.webauthn_credentials.count } do
+      post <%= identity.settings_helper_prefix %>_mfa_security_keys_path,
+        params: { credential: credential.to_json }
+    end
+    assert_response :unprocessable_entity
+  end
+<%- if password? -%>
+
+  test "a security key clears the second-factor challenge" do
+    sign_in @user
+    enroll_security_key
+    sign_out
+
+    start_first_factor(@user)
+
+    get new_<%= identity.route_scope %>_mfa_challenge_security_keys_path, as: :json
+    credential = @client.get(
+      challenge: response.parsed_body.fetch("challenge"),
+      rp_id: WebAuthn.configuration.rp_id,
+      user_verified: false
+    )
+
+    assert_difference -> { @user.sessions.count }, 1 do
+      post <%= identity.route_scope %>_mfa_challenge_security_keys_path,
+        params: { credential: credential }, as: :json
+    end
+    assert_response :created
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- end -%>
+
+  test "a security key can be removed" do
+    sign_in @user
+    enroll_security_key
+
+    assert_difference -> { @user.webauthn_credentials.count }, -1 do
+      delete <%= identity.settings_helper_prefix %>_mfa_security_key_path(@user.webauthn_credentials.sole)
+    end
+  end
+<%- if sudoable? -%>
+
+  test "a security key satisfies the sudo challenge on a guarded action" do
+    sign_in @user
+    enroll_security_key
+
+    assert_no_difference -> { <%= identity.class_name %>.count }, "no assertion, no deletion" do
+      delete <%= identity.settings_helper_prefix %>_user_path, params: { confirmation: "DELETE ACCOUNT" }
+    end
+
+    assert_difference -> { <%= identity.class_name %>.count }, -1 do
+      delete <%= identity.settings_helper_prefix %>_user_path,
+        params: { confirmation: "DELETE ACCOUNT", sudo_credential: <%= identity.route_scope %>_sudo_assertion }
+    end
+  end
+<%- end -%>
+
+  private
+
+  def failing_recovery_codes
+    original = <%= identity.recovery_code_class %>.method(:regenerate_for)
+    <%= identity.recovery_code_class %>.define_singleton_method(:regenerate_for) { |*| raise "Recovery codes unavailable" }
+    yield
+  ensure
+    <%= identity.recovery_code_class %>.define_singleton_method(:regenerate_for, original)
+  end
+
+  def clear_sudo_bar
+<%= test_clear_sudo_body %>
+  end
+
+  def enroll_security_key
+    credential = security_key_credential
+    post <%= identity.settings_helper_prefix %>_mfa_security_keys_path,
+      params: { credential: credential.to_json }
+    credential
+  end
+
+  def security_key_credential
+    clear_sudo_bar
+    get new_<%= identity.settings_helper_prefix %>_mfa_security_key_path, as: :json
+    @client.create(
+      challenge: response.parsed_body.fetch("challenge"),
+      rp_id: WebAuthn.configuration.rp_id,
+      user_verified: false # User verification is optional here because the password is the first factor.
+    )
+  end
+
+  def sign_in(user)
+    record = user.sessions.create!
+    env = Rails.application.env_config.merge("HTTP_HOST" => "www.example.com")
+    jar = ActionDispatch::Request.new(env).cookie_jar
+    jar.signed[:<%= identity.cookie_name %>] = record.id
+    cookies[:<%= identity.cookie_name %>] = jar[:<%= identity.cookie_name %>]
+  end
+
+  def sign_out
+    delete <%= identity.route_scope %>_sign_out_path
+  end
+<%- if password? -%>
+
+  def start_first_factor(user)
+<%= test_sign_in_body %>
+  end
+<%- end -%>
+end

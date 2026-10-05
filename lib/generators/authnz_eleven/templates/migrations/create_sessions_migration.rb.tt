@@ -1,0 +1,19 @@
+class <%= migration_class_name %> < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def change
+    create_table :<%= identity.sessions_table %><%= primary_key_options %> do |t|
+      t.references :<%= identity.singular %>, null: false, foreign_key: true<%= reference_type_options %>
+<%- if session_carries_team? -%>
+      t.references :team, foreign_key: <%= team_foreign_key %><%= reference_type_options %>
+<%- end -%>
+      t.string :via
+      t.string :user_agent
+<%- if sudoable? -%>
+      # Persist sudo recency on the session record so signing out clears it.
+      t.datetime :sudo_at
+<%- end -%>
+      t.string :ip_address
+
+      t.timestamps
+    end
+  end
+end

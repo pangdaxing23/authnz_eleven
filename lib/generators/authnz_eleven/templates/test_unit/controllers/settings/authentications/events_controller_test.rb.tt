@@ -1,0 +1,17 @@
+require "test_helper"
+
+class <%= identity.settings_module %>::Authentications::EventsControllerTest < ActionDispatch::IntegrationTest
+  setup { @user = <%= identity.plural %>(:bob) }
+
+  test "you can see your own authentication events" do
+    sign_in_as @user
+    get <%= identity.settings_helper_prefix %>_authentications_events_path
+    assert_response :success
+  end
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

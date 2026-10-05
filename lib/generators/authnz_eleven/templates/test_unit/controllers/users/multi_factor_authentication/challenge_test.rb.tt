@@ -1,0 +1,143 @@
+require "test_helper"
+
+class <%= identity.module_name %>::MultiFactorAuthentication::ChallengeTest < ActionDispatch::IntegrationTest
+<%- if sms_second_factor? -%>
+  include ActiveJob::TestHelper
+
+<%- end -%>
+  setup do
+    @user = <%= identity.plural %>(:bob)
+    <%= enroll_second_factor_expr("@user") %>
+  end
+<%- if password? -%>
+
+  test "signing in with a second factor enrolled diverts to the challenge" do
+    sign_in_with_password
+    assert_redirected_to <%= enrolled_second_factor_challenge_path %>
+    assert cookies[:<%= identity.cookie_name %>].blank?, "no session until the second factor is cleared"
+  end
+<%- if totp? -%>
+
+  test "a correct TOTP code clears the challenge and signs in" do
+    sign_in_with_password
+    post <%= identity.route_scope %>_mfa_challenge_totp_path, params: { code: ROTP::TOTP.new(@user.totp_secret).now }
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+
+  test "a wrong TOTP code does not sign in" do
+    sign_in_with_password
+    post <%= identity.route_scope %>_mfa_challenge_totp_path, params: { code: "000000" }
+    assert_redirected_to new_<%= identity.route_scope %>_mfa_challenge_totp_path
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "the authenticator challenge refuses an account that is not enrolled" do
+    sign_in_with_password
+    @user.update!(totp_enrolled_at: nil)
+
+    post <%= identity.route_scope %>_mfa_challenge_totp_path, params: { code: ROTP::TOTP.new(@user.totp_secret).now }
+
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert cookies[:<%= identity.cookie_name %>].blank?,
+           "every account carries a totp_secret from birth, enrolled or not"
+  end
+<%- end -%>
+
+<%- if sms_second_factor? -%>
+
+  test "the texted code clears the challenge and signs in" do
+    enroll_sms
+    sign_in_with_password
+    get new_<%= identity.route_scope %>_mfa_challenge_sms_path
+
+    patch <%= identity.route_scope %>_mfa_challenge_sms_path, params: { code: issued_code }
+
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+
+  test "a wrong texted code does not sign in" do
+    enroll_sms
+    sign_in_with_password
+    get new_<%= identity.route_scope %>_mfa_challenge_sms_path
+
+    patch <%= identity.route_scope %>_mfa_challenge_sms_path, params: { code: "000000" }
+
+    assert_response :unprocessable_entity
+    assert cookies[:<%= identity.cookie_name %>].blank?
+  end
+
+  test "the challenge refuses a factor the account no longer holds" do
+    enroll_sms
+    sign_in_with_password
+    get new_<%= identity.route_scope %>_mfa_challenge_sms_path
+    code = issued_code
+    @user.update!(sms_enrolled_at: nil)
+
+    patch <%= identity.route_scope %>_mfa_challenge_sms_path, params: { code: code }
+
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert cookies[:<%= identity.cookie_name %>].blank?,
+           "a handoff says the first factor was met, not which second factor to accept"
+  end
+
+  test "landing on the challenge twice does not text a second code" do
+    enroll_sms
+    sign_in_with_password
+
+    assert_enqueued_jobs 1, only: SmsDeliveryJob do
+      get new_<%= identity.route_scope %>_mfa_challenge_sms_path
+      get new_<%= identity.route_scope %>_mfa_challenge_sms_path
+    end
+  end
+<%- end -%>
+
+  test "a valid recovery code clears the challenge and signs in" do
+    @user.recovery_codes.create!(code: "recovery-code-1")
+    sign_in_with_password
+    post <%= identity.route_scope %>_mfa_challenge_recovery_codes_path, params: { code: "recovery-code-1" }
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+
+  test "a recovery code is single-use" do
+    @user.recovery_codes.create!(code: "recovery-code-1")
+    sign_in_with_password
+    post <%= identity.route_scope %>_mfa_challenge_recovery_codes_path, params: { code: "recovery-code-1" }
+    delete <%= identity.route_scope %>_sign_out_path
+
+    sign_in_with_password
+    post <%= identity.route_scope %>_mfa_challenge_recovery_codes_path, params: { code: "recovery-code-1" }
+    assert cookies[:<%= identity.cookie_name %>].blank?, "a spent code must not sign in again"
+  end
+
+  test "recovery codes are never stored in a readable form" do
+    @user.recovery_codes.create!(code: "recovery-code-1")
+    assert_not_includes @user.recovery_codes.pluck(:code_digest), "recovery-code-1"
+  end
+<%- if bannable? -%>
+
+  test "a suspended account is barred before the challenge is issued" do
+    @user.ban!
+    sign_in_with_password
+
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_equal "Your account has been suspended.", flash[:alert]
+  end
+<%- end -%>
+
+  private
+
+  def sign_in_with_password
+    post <%= identity.route_scope %>_sign_in_path, params: { <%= sign_in_field %>: @user.<%= login_field %>, password: "quilted-lantern-moss-97" }
+  end
+<%- if sms_second_factor? -%>
+
+  def enroll_sms
+    @user.update!(sms_enrolled_at: Time.current)
+  end
+
+  def issued_code
+    enqueued_jobs.reverse.filter_map { |job| job.to_s[/(\d{6}) is your/, 1] }.first
+  end
+<%- end -%>
+<%- end -%>
+end

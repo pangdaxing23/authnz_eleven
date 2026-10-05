@@ -1,0 +1,17 @@
+<p style="color: red"><%%= alert %></p>
+
+<h1>Use your security key</h1>
+
+<div data-controller="webauthn"
+     data-webauthn-challenge-url-value="<%%= new_<%= identity.route_scope %>_mfa_challenge_security_keys_path(format: :json) %>"
+     data-webauthn-verification-url-value="<%%= <%= identity.route_scope %>_mfa_challenge_security_keys_path %>">
+  <button data-webauthn-target="button" data-action="webauthn#getCredential">Use security key</button>
+  <p data-webauthn-target="error" style="color: red" hidden></p>
+</div>
+
+<%- second_factor_alternatives(:security_keys).each do |clause, label, path| -%>
+<%% if <%= clause %> %>
+  <p><%%= link_to "<%= label %>", <%= path %> %></p>
+<%% end %>
+<%- end -%>
+<p><%%= link_to "Use a recovery code instead", new_<%= identity.route_scope %>_mfa_challenge_recovery_codes_path %></p>

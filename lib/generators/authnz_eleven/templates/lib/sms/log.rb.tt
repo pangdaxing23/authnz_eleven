@@ -1,0 +1,8 @@
+module Sms
+  module Log
+    def self.deliver(to:, body:)
+      Rails.logger.info("[sms] to=#{to} body=#{body}")
+      true
+    end
+  end
+end

@@ -1,0 +1,51 @@
+module <%= identity.authentication_concern %>::WebauthnCeremony
+  extend ActiveSupport::Concern
+
+  private
+
+  def issue_webauthn_challenge(options)
+    session[:<%= session_key(:webauthn_challenge) %>] = options.challenge
+    render json: options
+  end
+
+  def verify_webauthn_assertion(credential, from:)
+    challenge = consume_webauthn_challenge
+
+    assertion = WebAuthn::Credential.from_get(credential)
+    stored = from.find_by!(external_id: assertion.id)
+
+    assertion.verify(
+      challenge,
+      public_key: stored.public_key,
+      sign_count: stored.sign_count,
+<%- if passkey_and_security_keys? -%>
+      user_verification: stored.first_factor? # Only a passkey signs in on its own; a security key here is the second factor.
+<%- elsif passkey? -%>
+      user_verification: true # A passkey is the whole sign-in, so possession alone is not enough.
+<%- else -%>
+      user_verification: false # A security key here is the second factor, so presence is all it owes.
+<%- end -%>
+    )
+    stored.update!(sign_count: assertion.sign_count)
+    stored
+  end
+
+  def verify_webauthn_registration(credential, user_verification:)
+    challenge = consume_webauthn_challenge
+    registration = WebAuthn::Credential.from_create(credential)
+    registration.verify(challenge, user_verification: user_verification)
+
+    {
+      external_id: registration.id,
+      public_key: registration.public_key,
+      sign_count: registration.sign_count
+    }
+  end
+
+  def consume_webauthn_challenge
+    challenge = session.delete(:<%= session_key(:webauthn_challenge) %>)
+    raise WebAuthn::ChallengeVerificationError unless challenge
+
+    challenge
+  end
+end

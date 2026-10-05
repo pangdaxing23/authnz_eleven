@@ -1,0 +1,50 @@
+module <%= identity.class_name %>::PhoneVerifiable
+  extend ActiveSupport::Concern
+
+  included do
+    normalizes :pending_phone, with: -> { Phonelib.parse(it, <%= identity.config_reference %>.phone.default_country).to_s.presence }
+<%- if phone_encrypted? -%>
+    encrypts :pending_phone
+<%- end -%>
+    validates :pending_phone, phone: { allow_blank: true, countries: <%= identity.config_reference %>.phone.allowed_countries, format: :e164 }
+<%- unless coy? -%>
+    validate { errors.add(:pending_phone, :taken) if pending_phone_taken? }
+<%- end -%>
+<%- if trackable? -%>
+
+    after_update if: :phone_previously_changed? do
+      record_event("<%= identity.singular %>.phone_changed")
+    end
+<%- end -%>
+  end
+
+  def stage_phone(number)
+    self.pending_phone = number
+
+    if pending_phone.blank?
+      self.phone = nil
+    elsif pending_phone == phone
+      self.pending_phone = nil
+    end
+    self
+  end
+
+  def pending_phone_taken?
+    pending_phone.present? && <%= identity.class_name %>.exists?(phone: pending_phone)
+  end
+
+  def request_phone_change_verification
+    if pending_phone_taken?
+      clear_sms_challenge
+    else
+      issue_sms_challenge(to: pending_phone)
+    end
+  end
+
+  def verify_pending_phone
+    update(phone: pending_phone, pending_phone: nil)
+  rescue ActiveRecord::RecordNotUnique
+    errors.add(:phone, :taken)
+    false
+  end
+end

@@ -1,0 +1,32 @@
+require "test_helper"
+
+class <%= identity.class_name %>::RecoveryCodesTest < ActiveSupport::TestCase
+  setup do
+    @user = <%= identity.plural %>(:bob)
+    @user.update!(totp_enrolled_at: Time.current)
+    <%= identity.recovery_code_class %>.regenerate_for(@user)
+  end
+
+  test "turning the authenticator off keeps the codes while a security key remains" do
+    add_security_key
+    @user.update!(totp_enrolled_at: nil)
+    @user.discard_orphaned_recovery_codes!
+
+    assert @user.recovery_codes.reload.any?
+  end
+
+  test "removing the last security key takes the codes with it" do
+    add_security_key
+    @user.update!(totp_enrolled_at: nil)
+    <%= second_factor_keys_expr("@user") %>.destroy_all
+    @user.discard_orphaned_recovery_codes!
+
+    assert_empty @user.recovery_codes.reload
+  end
+
+  private
+
+  def add_security_key
+    <%= second_factor_keys_expr("@user") %>.create!(name: "Key", external_id: "ext-#{@user.id}", public_key: "pk"<%= factor_attr(:second_factor) %>)
+  end
+end

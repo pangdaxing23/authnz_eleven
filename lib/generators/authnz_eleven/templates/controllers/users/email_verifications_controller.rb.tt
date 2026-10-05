@@ -1,0 +1,36 @@
+class <%= identity.module_name %>::EmailVerificationsController < <%= identity.controller_superclass %>
+  allow_unauthenticated_access
+  before_action :set_<%= identity.singular %>
+
+  def show
+  end
+
+  def update
+<%- if security_notifications? -%>
+    old_email = @<%= identity.singular %>.email
+<%- end -%>
+    return redirect_to_rejection unless @<%= identity.singular %>.verify_pending_email
+<%- if security_notifications? -%>
+
+    <%= identity.mailer_class %>.send_security_notification(:email_changed, to: old_email)
+<%- end -%>
+
+    if authenticated?
+      redirect_to edit_<%= identity.settings_helper_prefix %>_email_path, notice: "Your email has been confirmed."
+    else
+      redirect_to <%= identity.route_scope %>_sign_in_path, notice: "Your email has been confirmed. Please sign in."
+    end
+  end
+
+  private
+
+  def set_<%= identity.singular %>
+    @<%= identity.singular %> = <%= identity.class_name %>.find_by_token_for(:email_change_verification, params.expect(:sid))
+
+    redirect_to_rejection unless @<%= identity.singular %>
+  end
+
+  def redirect_to_rejection
+    redirect_to <%= identity.route_scope %>_sign_in_path, alert: "That confirmation link is invalid or has expired."
+  end
+end

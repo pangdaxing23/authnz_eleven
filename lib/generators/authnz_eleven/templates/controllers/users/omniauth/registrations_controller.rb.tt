@@ -1,0 +1,26 @@
+class <%= identity.module_name %>::Omniauth::RegistrationsController < <%= identity.controller_superclass %>
+  include <%= identity.authentication_concern %>::Registering
+
+  require_unauthenticated_access
+  before_action :set_registration
+
+  def new
+  end
+
+  def create
+    return render :new, status: :unprocessable_entity unless @registration.update(profile_params)
+
+    advance(@registration)
+  end
+
+  private
+
+  def set_registration
+    @registration = <%= identity.pending_registration_class %>.unexpired.find_by(id: session[:<%= pending_registration_session_key %>])
+    redirect_to <%= identity.route_scope %>_sign_in_path, alert: "That took too long. Please sign in again." unless @registration&.provider
+  end
+
+  def profile_params
+    params.permit(<%= omniauth_registration_permits %>)
+  end
+end

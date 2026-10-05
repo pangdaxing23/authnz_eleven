@@ -1,0 +1,52 @@
+class <%= identity.module_name %>::SessionsController < <%= identity.controller_superclass %>
+  require_unauthenticated_access except: [ :destroy ]
+<%- if impeded? -%>
+  skip_impediments only: :destroy
+<%- end -%>
+<%- if password? -%>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.sign_in, only: :create,
+    with: -> { redirect_to <%= identity.route_scope %>_sign_in_path, alert: "Too many sign-in attempts. Please try again later." })
+<%- end -%>
+
+  def new
+  end
+
+<%- if password? -%>
+  def create
+<%- if multi_login? -%>
+    identifier = params[:login].to_s.strip
+
+<%- end -%>
+<%- if captchable? -%>
+    unless captcha_verified?
+      return redirect_to <%= identity.route_scope %>_sign_in_path(<%= login_hint_param %>: <%= login_identifier_expr %>),
+        alert: "Captcha verification failed. Please try again."
+    end
+
+<%- end -%>
+    user = <%= identity.class_name %>.authenticate_with_password(<%= login_identifier_expr %>, params[:password])
+
+    unless user
+<%- if deadboltable? -%>
+      <%= failed_sign_in_lookup %>
+      return redirect_to <%= identity.route_scope %>_sign_in_path(<%= login_hint_param %>: <%= login_identifier_expr %>),
+        alert: <%= failed_sign_in_alert %>
+<%- else -%>
+      return redirect_to <%= identity.route_scope %>_sign_in_path(<%= login_hint_param %>: <%= login_identifier_expr %>), alert: "<%= incorrect_login_message %>."
+<%- end -%>
+    end
+<%- if deadboltable? -%>
+
+    user.reset_failed_attempts!
+<%- end -%>
+
+    <%= sign_in_call("user", via: :password, remember_expr: 'params[:remember_me] == "1"') %>
+    redirect_to after_authentication_url, status: :see_other
+  end
+
+<%- end -%>
+  def destroy
+    terminate_current_session
+    redirect_to root_url, notice: "Signed out.", status: :see_other
+  end
+end

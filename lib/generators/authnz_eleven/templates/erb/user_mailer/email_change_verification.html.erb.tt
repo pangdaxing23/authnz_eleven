@@ -1,0 +1,7 @@
+<p>Hi,</p>
+
+<p>Confirm your new email address by clicking the link below.</p>
+
+<p><%%= link_to "Confirm new address", <%= identity.route_scope %>_verify_email_change_url(sid: @signed_id) %></p>
+
+<p>If you didn't ask for this, you can ignore this message.</p>

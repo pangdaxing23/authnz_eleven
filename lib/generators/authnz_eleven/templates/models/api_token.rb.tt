@@ -1,0 +1,24 @@
+class <%= identity.api_token_class %> < ApplicationRecord
+  belongs_to :<%= identity.singular %>
+<%- if identity.namespaced? -%>
+
+  alias_method :user, :<%= identity.singular %>
+<%- end -%>
+
+  validates :name, presence: true, length: { maximum: 100 }
+  validates :token_digest, presence: true, uniqueness: true
+  validates :expires_at, presence: true
+
+  def self.issue!(user:, name:)
+    secret = "ae11_#{SecureRandom.urlsafe_base64(32)}"
+    token = user.api_tokens.create!(name:, token_digest: Digest::SHA256.hexdigest(secret), expires_at: 90.days.from_now)
+    [ token, secret ]
+  end
+
+  def self.authenticate(secret)
+    return unless secret&.start_with?("ae11_") && secret.bytesize == 48
+
+    token = includes(:<%= identity.singular %>).find_by(token_digest: Digest::SHA256.hexdigest(secret))
+    token if token && token.expires_at.future?<%= " && !token.user.guest?" if guestable? %>
+  end
+end

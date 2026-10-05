@@ -1,0 +1,48 @@
+module <%= identity.authorization_concern %>
+  extend ActiveSupport::Concern
+<%- if teams? -%>
+
+  included do
+<%- unless middleware_teams? -%>
+    before_action :set_current_team, if: :authenticated?
+<%- end -%>
+    before_action :team_members_only, if: :authenticated?
+  end
+<%- end -%>
+<%- if adminable? -%>
+
+  class_methods do
+    def admins_only
+      not_found_unless { <%= identity.current_class %>.user.admin? }
+    end
+  end
+<%- end -%>
+<%- if scope_teams? -%>
+
+  def default_url_options
+    super.merge(path_params: { team_id: <%= identity.current_class %>.team&.id }.compact)
+  end
+<%- end -%>
+<%- if teams? -%>
+
+  private
+<%- if scope_teams? -%>
+
+  def set_current_team
+    <%= identity.current_class %>.team = <%= identity.team_class %>.find(request.path_parameters[:team_id]) if request.path_parameters[:team_id]
+  end
+<%- elsif session_carries_team? -%>
+
+  def set_current_team
+    <%= identity.current_class %>.team = <%= identity.current_class %>.session.team
+  end
+<%- end -%>
+
+  def team_members_only
+    return unless <%= identity.current_class %>.team
+    return if <%= identity.current_class %>.user.member_of?(<%= identity.current_class %>.team)
+
+    raise ActiveRecord::RecordNotFound
+  end
+<%- end -%>
+end

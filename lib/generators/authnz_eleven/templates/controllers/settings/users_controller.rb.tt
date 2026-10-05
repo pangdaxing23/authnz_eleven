@@ -1,0 +1,42 @@
+class <%= identity.settings_module %>::UsersController < <%= identity.settings_controller %>
+<%- if sudoable? -%>
+  require_sudo message: "Please confirm it's you before deleting your account.", only: :destroy
+<%- elsif password? -%>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.password_challenge, only: :destroy, name: "password_challenge",
+    with: -> { redirect_to <%= identity.settings_helper_prefix %>_user_path, alert: "Too many attempts. Please try again later.", status: :see_other })
+  before_action :require_password_challenge, only: :destroy
+<%- end -%>
+  before_action :require_confirmation, only: :destroy
+
+  def show
+  end
+
+  def destroy
+    user = <%= identity.current_class %>.user
+<%- if security_notifications? -%>
+    email = user.email
+<%- end -%>
+    user.destroy!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:account_deleted, to: email)
+<%- end -%>
+    <%= identity.current_class %>.session = nil
+    redirect_to root_path, notice: "Your account has been deleted.", status: :see_other
+  end
+
+  private
+
+  def require_confirmation
+    return if params[:confirmation] == "DELETE ACCOUNT"
+
+    redirect_to <%= identity.settings_helper_prefix %>_user_path, alert: "Type DELETE ACCOUNT to confirm.", status: :see_other
+  end
+<%- if !sudoable? && password? -%>
+
+  def require_password_challenge
+    return if <%= identity.current_class %>.user.authenticate(params[:password_challenge].to_s)
+
+    redirect_to <%= identity.settings_helper_prefix %>_user_path, alert: "Password challenge is invalid.", status: :see_other
+  end
+<%- end -%>
+end

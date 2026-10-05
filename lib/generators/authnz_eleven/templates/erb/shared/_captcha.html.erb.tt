@@ -1,0 +1,8 @@
+<%% if Captcha.site_key %>
+<div class="cf-turnstile"
+     data-sitekey="<%%= Captcha.site_key %>"
+     <%%# Turnstile writes this field; its name must match Captchable's parameter, and forms using this partial must disable Turbo so rejected one-use tokens are replaced. %>
+     data-response-field-name="captcha_token"></div>
+<%%= javascript_include_tag "https://challenges.cloudflare.com/turnstile/v0/api.js",
+      async: true, defer: true %>
+<%% end %>

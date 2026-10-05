@@ -1,0 +1,110 @@
+require "test_helper"
+
+class <%= identity.module_name %>::SudosControllerTest < ActionDispatch::IntegrationTest
+  setup { @user = <%= identity.plural %>(:bob) }
+<%- if sudo_test_mode == :open -%>
+
+  test "a challenge this account cannot answer fails open" do
+    sign_in_as @user
+
+    assert_difference -> { <%= identity.class_name %>.count }, -1 do
+      delete <%= identity.settings_helper_prefix %>_user_path, params: { confirmation: "DELETE ACCOUNT" }
+    end
+  end
+<%- else -%>
+
+  test "the sudo page presents the challenge" do
+    sign_in_as @user
+    get new_<%= identity.route_scope %>_sudo_path
+    assert_response :success
+  end
+
+  test "a wrong answer keeps you on the sudo page and stamps nothing" do
+    sign_in_as @user
+    session = <%= identity.session_class %>.last
+
+    post <%= identity.route_scope %>_sudo_path, params: { sudo_password: "wrong-password" }
+
+    assert_redirected_to new_<%= identity.route_scope %>_sudo_path
+    assert_nil session.reload.sudo_at
+  end
+
+  test "the right answer stamps the session and proceeds" do
+    sign_in_as @user
+    session = <%= identity.session_class %>.last
+
+    post <%= identity.route_scope %>_sudo_path, params: { <%= sudo_test_answer %> }
+
+    assert_redirected_to <%= identity.settings_helper_prefix %>_url
+    assert_not_nil session.reload.sudo_at
+  end
+
+  test "the request cannot choose where confirming sends you" do
+    sign_in_as @user
+
+    post <%= identity.route_scope %>_sudo_path,
+      params: { <%= sudo_test_answer %>, proceed_to_url: root_url, message: "Confirm to claim your refund." }
+
+    assert_redirected_to <%= identity.settings_helper_prefix %>_url
+  end
+
+  test "a guarded action with no answer changes nothing" do
+    sign_in_as @user
+
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      delete <%= identity.settings_helper_prefix %>_user_path, params: { confirmation: "DELETE ACCOUNT" }
+    end
+    assert_response :redirect
+  end
+
+  test "a guarded action with a wrong answer changes nothing" do
+    sign_in_as @user
+
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      delete <%= identity.settings_helper_prefix %>_user_path,
+        params: { confirmation: "DELETE ACCOUNT", sudo_password: "wrong-password" }
+    end
+    assert_response :redirect
+  end
+
+  test "a guarded action with the right answer runs in one request" do
+    sign_in_as @user
+
+    assert_difference -> { <%= identity.class_name %>.count }, -1 do
+      delete <%= identity.settings_helper_prefix %>_user_path,
+        params: { confirmation: "DELETE ACCOUNT", <%= sudo_test_answer %> }
+    end
+    assert_redirected_to root_path
+  end
+
+  test "an action answered inline still stamps, so an area opens too" do
+    sign_in_as @user
+    session = <%= identity.session_class %>.last
+<%- if email_changeable? -%>
+
+    patch <%= identity.settings_helper_prefix %>_email_path,
+      params: { email: "changed-#{SecureRandom.hex(4)}@example.com", <%= sudo_test_answer %> }
+
+    assert_not_nil session.reload.sudo_at
+<%- elsif phone_changeable? -%>
+
+    patch <%= identity.settings_helper_prefix %>_phone_path,
+      params: { phone: "+14158264010", <%= sudo_test_answer %> }
+
+    assert_not_nil session.reload.sudo_at
+<%- else -%>
+
+    delete <%= identity.settings_helper_prefix %>_user_path,
+      params: { confirmation: "DELETE ACCOUNT", <%= sudo_test_answer %> }
+
+    assert_not_nil session.reload.sudo_at
+<%- end -%>
+  end
+<%- end -%>
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

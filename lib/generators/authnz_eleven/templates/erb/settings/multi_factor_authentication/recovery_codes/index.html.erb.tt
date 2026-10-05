@@ -1,0 +1,13 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1>Recovery codes</h1>
+
+<p>Each one signs you in once if you can't use your second factor. They can't be shown to you again. If you no longer have yours, generate
+a new set. Doing so invalidates the codes you have now.</p>
+
+<p>You have <%%= @remaining %> unused recovery <%%= "code".pluralize(@remaining) %>.</p>
+
+<%%= button_to "Generate a new set", <%= identity.settings_helper_prefix %>_mfa_recovery_codes_path, method: :post,
+      data: {turbo: false} %>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

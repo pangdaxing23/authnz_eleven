@@ -1,0 +1,9 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Accept your invitation</h1>
+
+<p>You were invited as <%%= @invitation.sent_to %>.</p>
+
+<%%# Accept with a non-GET request so mail scanners cannot spend the invitation. %>
+<%%= button_to "Accept invitation", <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: params[:token]), method: :patch %>

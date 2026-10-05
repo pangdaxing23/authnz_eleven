@@ -1,0 +1,14 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1>Save your recovery codes</h1>
+
+<p><strong>This is the only time these will be shown.</strong> Each one signs you in
+once if you lose your authenticator app, so store them somewhere safe.</p>
+
+<ul>
+  <%% @codes.each do |code| %>
+    <li><code><%%= code %></code></li>
+  <%% end %>
+</ul>
+
+<p><%%= button_to "I've saved them", complete_<%= identity.settings_helper_prefix %>_mfa_recovery_codes_path, method: :post %></p>

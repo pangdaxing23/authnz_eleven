@@ -1,0 +1,256 @@
+require "test_helper"
+
+class <%= identity.settings_module %>::ManagementTest < ActionDispatch::IntegrationTest
+  include ActionMailer::TestHelper
+
+  setup { @user = <%= identity.plural %>(:bob) }
+
+  test "authentication is required unless allowed" do
+    get <%= identity.settings_helper_prefix %>_path
+    assert_response :redirect
+
+    follow_redirect!
+    assert_response :success
+  end
+
+  test "you can sign one of your sessions out" do
+    sign_in_as @user
+    session = @user.sessions.reload.last
+    assert_difference -> { @user.sessions.count }, -1 do
+      delete <%= identity.settings_helper_prefix %>_session_path(session)
+    end
+  end
+<%- if password? -%>
+
+  test "you can change your password" do
+    sign_in_as @user
+    patch <%= identity.settings_helper_prefix %>_password_path,
+      params: { password_challenge: "quilted-lantern-moss-97", password: "heron-basalt-drift-41", password_confirmation: "heron-basalt-drift-41" }
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_password_path
+    assert @user.reload.authenticate("heron-basalt-drift-41"), "the new password should verify"
+  end
+<%- end -%>
+
+  test "deleting your account has a page of its own" do
+    sign_in_as @user
+    get <%= identity.settings_helper_prefix %>_user_path
+    assert_response :success
+  end
+<%- if password? && !sudoable? -%>
+
+  test "deleting your account requires the current password" do
+    sign_in_as @user
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      delete <%= identity.settings_helper_prefix %>_user_path,
+        params: { confirmation: "DELETE ACCOUNT", password_challenge: "wrong-password" }
+    end
+  end
+<%- end -%>
+
+  test "deleting your account takes the phrase, typed exactly" do
+    sign_in_as @user
+    assert_no_difference -> { <%= identity.class_name %>.count } do
+      delete <%= identity.settings_helper_prefix %>_user_path, params: { confirmation: "delete account"<%= settings_credential_pair %> }
+    end
+    assert_redirected_to <%= identity.settings_helper_prefix %>_user_url
+  end
+
+  test "you can delete your account" do
+    sign_in_as @user
+    assert_difference -> { <%= identity.class_name %>.count }, -1 do
+      delete <%= identity.settings_helper_prefix %>_user_path, params: { confirmation: "DELETE ACCOUNT"<%= settings_credential_pair %> }
+    end
+  end
+<%- if email_changeable? -%>
+
+  test "you can change your email" do
+    sign_in_as @user
+    address = "changed-#{SecureRandom.hex(4)}@example.com"
+    patch <%= identity.settings_helper_prefix %>_email_path,
+      params: { email: address<%= settings_credential_pair %> }
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_email_path
+<%- if email_verifiable? -%>
+    assert_not_equal address, @user.reload.email
+    assert_equal address, @user.pending_email
+<%- else -%>
+    assert_equal address, @user.reload.email
+<%- end -%>
+  end
+<%- if email_verifiable? -%>
+
+  test "re-submitting the address already on file stages nothing" do
+    sign_in_as @user
+    assert_no_enqueued_emails do
+      patch <%= identity.settings_helper_prefix %>_email_path,
+        params: { email: <%= identity.plural %>(:bob).email<%= settings_credential_pair %> }
+    end
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_email_path
+    assert_nil @user.reload.pending_email
+  end
+<%- end -%>
+<%- if principals.email.required? || contactable_validation? -%>
+
+  test "a removal this account can't afford is refused in words" do
+    sign_in_as @user
+<%- if contactable_validation? -%>
+    @user.update!(phone: nil)
+<%- end -%>
+    patch <%= identity.settings_helper_prefix %>_email_path, params: { email: ""<%= settings_credential_pair %> }
+    assert_response :unprocessable_entity
+<%- if contactable_validation? -%>
+    assert_includes response.parsed_body.text, "Add <%= channel_keys_article_phrase %>."
+<%- else -%>
+    assert_includes response.parsed_body.text, "Email can't be blank"
+<%- end -%>
+    assert_equal <%= identity.plural %>(:bob).email, @user.reload.email
+  end
+<%- end -%>
+
+<%- if coy? -%>
+  test "an already-registered email is answered exactly like a free one" do
+    sign_in_as @user
+    taken = <%= identity.plural %>(:alice).email
+    free = "free-#{SecureRandom.hex(4)}@example.com"
+
+    patch <%= identity.settings_helper_prefix %>_email_path,
+      params: { email: taken<%= settings_credential_pair %> }
+    taken_status, taken_location = response.status, response.location
+    follow_redirect!
+    taken_body = response.body.gsub(taken, "submitted@example.com")
+
+    patch <%= identity.settings_helper_prefix %>_email_path,
+      params: { email: free<%= settings_credential_pair %> }
+    assert_equal taken_status, response.status
+    assert_equal taken_location, response.location
+    follow_redirect!
+    assert_equal taken_body, response.body.gsub(free, "submitted@example.com"),
+      "a taken address and a free one must leave the same page behind, not just the same redirect"
+  end
+<%- else -%>
+  test "changing to an already-registered email is called out" do
+    sign_in_as @user
+    patch <%= identity.settings_helper_prefix %>_email_path,
+      params: { email: <%= identity.plural %>(:alice).email<%= settings_credential_pair %> }
+    assert_response :unprocessable_entity
+    assert_equal <%= identity.plural %>(:bob).email, @user.reload.email
+  end
+<%- end -%>
+<%- end -%>
+<%- principals.select { |p| p.channel? && p.permanent? }.each do |principal| -%>
+
+  test "there is no way to change a permanent <%= principal.column %>" do
+    sign_in_as @user
+    patch "#{<%= identity.settings_helper_prefix %>_path}/<%= principal.column %>", params: { <%= principal.column %>: "<%= principal.type == :email ? "moved@example.com" : "+14158264010" %>" }
+    assert_response :not_found
+    assert_equal <%= identity.plural %>(:bob).<%= principal.column %>, @user.reload.<%= principal.column %>
+  end
+<%- end -%>
+<%- if phone_changeable? -%>
+
+  test "you can change your phone" do
+    sign_in_as @user
+    patch <%= identity.settings_helper_prefix %>_phone_path,
+      params: { phone: "+1 415 826 4010"<%= settings_credential_pair %> }
+<%- if phone_verifiable? -%>
+    assert_redirected_to new_<%= identity.settings_helper_prefix %>_phone_verification_path
+    assert_equal "+14158264010", @user.reload.pending_phone
+    assert @user.sms_challenge?(to: "+14158264010")
+<%- else -%>
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_phone_path
+    assert_equal "+14158264010", @user.reload.phone
+<%- end -%>
+  end
+<%- if phone_verifiable? -%>
+
+  test "re-submitting the number already on file stages nothing" do
+    sign_in_as @user
+    patch <%= identity.settings_helper_prefix %>_phone_path,
+      params: { phone: <%= identity.plural %>(:bob).phone<%= settings_credential_pair %> }
+    assert_redirected_to edit_<%= identity.settings_helper_prefix %>_phone_path
+    assert_nil @user.reload.pending_phone
+    assert_not @user.sms_challenge?
+  end
+<%- end -%>
+<%- if contactable_validation? -%>
+
+  test "a phone removal this account can't afford is refused in words" do
+    sign_in_as @user
+    @user.update!(email: nil)
+    patch <%= identity.settings_helper_prefix %>_phone_path, params: { phone: ""<%= settings_credential_pair %> }
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.text, "Add <%= channel_keys_article_phrase %>."
+    assert_equal <%= identity.plural %>(:bob).phone, @user.reload.phone
+  end
+<%- end -%>
+
+  test "changing to an already-registered phone <%= coy? ? "reveals nothing" : "is called out" %>" do
+    sign_in_as @user
+    patch <%= identity.settings_helper_prefix %>_phone_path,
+      params: { phone: <%= identity.plural %>(:alice).phone<%= settings_credential_pair %> }
+<%- if coy? -%>
+    assert_redirected_to new_<%= identity.settings_helper_prefix %>_phone_verification_path
+    assert_equal <%= identity.plural %>(:alice).phone, @user.reload.pending_phone
+    assert_not @user.sms_challenge?(to: <%= identity.plural %>(:alice).phone)
+<%- else -%>
+    assert_response :unprocessable_entity
+<%- end -%>
+    assert_not_equal <%= identity.plural %>(:alice).phone, @user.reload.phone
+  end
+<%- end -%>
+
+<%- if password_removable? -%>
+<%- if (omniauth? || passkey?) && !magic_link? && !sms_code? -%>
+  test "the last way into the account is not removable" do
+    sign_in_as @user
+    assert_equal [ :password ], @user.sign_in_methods, "fixture should hold only a password"
+
+    assert_no_changes -> { @user.reload.password_digest } do
+      delete <%= identity.settings_helper_prefix %>_password_path
+    end
+    assert_match "only way into your account", flash[:alert].to_s
+  end
+<%- end -%>
+
+  test "a password can be given up once something else can let you in" do
+    <%= password_optional_second_door_setup %>
+    sign_in_as @user
+
+    delete <%= identity.settings_helper_prefix %>_password_path
+
+    assert_nil @user.reload.password_digest
+    assert_not @user.authenticate("quilted-lantern-moss-97"), "a removed password must stop working"
+  end
+
+  test "a password can be set again afterwards, with no current password to pose" do
+    <%= password_optional_second_door_setup %>
+    sign_in_as @user
+    @user.update_columns(password_digest: nil<%= password_rotatable? ? ", password_changed_at: nil" : "" %>)
+<%- if webauthn_credentials? -%>
+    @user.webauthn_credentials.create!(name: "Lost key", external_id: "ext-lost-key", public_key: "pk"<%= factor_attr(:first_factor) %>)
+<%- end -%>
+
+    post <%= identity.settings_helper_prefix %>_password_path,
+      params: { password: "heron-basalt-drift-41", password_confirmation: "heron-basalt-drift-41" }
+
+    assert @user.reload.authenticate("heron-basalt-drift-41"), "the new password should verify"
+  end
+<%- end -%>
+<%- if password_nullable? -%>
+
+  test "a rejected first password is asked for again, not challenged" do
+    sign_in_as @user
+    @user.update_columns(password_digest: nil<%= password_rotatable? ? ", password_changed_at: nil" : "" %>)
+
+    post <%= identity.settings_helper_prefix %>_password_path, params: { password: "short", password_confirmation: "short" }
+
+    assert_response :unprocessable_entity
+    assert_no_match(/Current password/, response.parsed_body.text)
+    assert_nil @user.reload.password_digest
+  end
+<%- end -%>
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

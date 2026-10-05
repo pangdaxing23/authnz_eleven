@@ -1,0 +1,65 @@
+require "test_helper"
+
+class <%= admin_module %>::MultiFactorAuthenticationTest < ActionDispatch::IntegrationTest
+  setup { @admin = <%= identity.plural %>(:alice) }
+
+  test "an MFA-less admin is held: an admin page bounces to the enrollment screen" do
+    assert_not @admin.second_factor_enrolled?
+    sign_in_as @admin
+
+    get <%= admin_helper("users_path") %>
+    assert_redirected_to <%= admin_mfa_hold_path %>
+  end
+
+  test "the enrollment screen stays reachable while held" do
+    sign_in_as @admin
+<%- if sudo_test_mode == :answer -%>
+    post <%= identity.route_scope %>_sudo_path, params: { <%= sudo_test_answer %> }
+<%- end -%>
+
+    get <%= admin_mfa_hold_path %>
+    assert_response :success
+  end
+<%- if sudo_test_mode == :answer -%>
+
+  test "the sudo page stays reachable while held, so the enrollment screen can ask for confirmation" do
+    sign_in_as @admin
+
+    get new_<%= identity.route_scope %>_sudo_path
+    assert_response :success
+  end
+<%- end -%>
+
+  test "enrolling a second factor clears the gate for the rest of the admin area" do
+    sign_in_as @admin
+    get <%= admin_helper("users_path") %>
+    assert_redirected_to <%= admin_mfa_hold_path %>, "held before a second factor is enrolled"
+
+    <%= enroll_second_factor_expr("@admin") %>
+    assert @admin.reload.second_factor_enrolled?
+
+    get <%= admin_helper("users_path") %>
+    assert_response :success, "cleared once a second factor is enrolled"
+  end
+
+
+  test "an admin clears every second factor a user holds" do
+    stranded = <%= identity.plural %>(:bob)
+    <%= enroll_second_factor_expr("stranded") %>
+    <%= identity.recovery_code_class %>.regenerate_for(stranded)
+
+    sign_in_as @admin
+    <%= enroll_second_factor_expr("@admin") %>
+    post reset_second_factor_<%= admin_helper("user_path") %>(stranded)
+
+    assert_not stranded.reload.second_factor_enrolled?
+    assert_empty stranded.recovery_codes.reload,
+                 "codes guarding nothing are live sign-in secrets"
+  end
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

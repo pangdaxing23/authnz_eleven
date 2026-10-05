@@ -1,0 +1,15 @@
+<h1><%%= @subject %></h1>
+
+<p>This security change was made to your account.</p>
+
+<%% if @occurred_at %>
+  <p>When: <%%= @occurred_at %></p>
+<%% end %>
+<%% if @ip_address.present? %>
+  <p>IP address: <%%= @ip_address %></p>
+<%% end %>
+<%% if @user_agent.present? %>
+  <p>Device: <%%= @user_agent %></p>
+<%% end %>
+
+<p>If this wasn't you, secure your account and contact support.</p>

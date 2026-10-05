@@ -1,0 +1,28 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Delete your account</h1>
+
+<p>This permanently deletes your account and signs out every session. It can't be undone.</p>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_user_path, method: :delete do |form| %>
+  <div>
+    <%%= form.label :confirmation, "Type DELETE ACCOUNT to confirm" %><br>
+    <%%= form.text_field :confirmation, required: true, autocomplete: "off" %>
+  </div>
+
+<%- if sudoable? -%>
+  <%%= render "<%= identity.sudo_partial %>", form:, submit: "Delete my account" %>
+<%- else -%>
+<%- if password? -%>
+  <div>
+    <%%= form.label :password_challenge, "Current password" %><br>
+    <%%= form.password_field :password_challenge, required: true, autocomplete: "current-password" %>
+  </div>
+
+<%- end -%>
+  <div><%%= form.submit "Delete my account" %></div>
+<%- end -%>
+<%% end %>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

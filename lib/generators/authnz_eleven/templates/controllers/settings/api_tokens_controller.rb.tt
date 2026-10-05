@@ -1,0 +1,54 @@
+class <%= identity.settings_module %>::ApiTokensController < <%= identity.settings_controller %>
+<%- if sudoable? -%>
+  require_sudo message: "Please confirm it's you before creating an API token.", only: :create
+<%- end -%>
+<%- if impersonatable? -%>
+  before_action :refuse_impersonation
+<%- end -%>
+<%- if guestable? -%>
+  before_action :refuse_guest
+<%- end -%>
+<%- if sudoable? || impersonatable? || guestable? -%>
+
+<%- end -%>
+  def index
+    @api_tokens = <%= identity.current_class %>.user.api_tokens.order(created_at: :desc)
+  end
+
+  def create
+    @api_token, @secret = <%= identity.api_token_class %>.issue!(user: <%= identity.current_class %>.user, name: params[:name].to_s.strip)
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:api_token_created)
+<%- end -%>
+    response.headers["Cache-Control"] = "no-store"
+    render :create, status: :created
+  rescue ActiveRecord::RecordInvalid => error
+    @api_tokens = <%= identity.current_class %>.user.api_tokens.order(created_at: :desc)
+    @error = error.record.errors.full_messages.to_sentence
+    render :index, status: :unprocessable_entity
+  end
+
+  def destroy
+    <%= identity.current_class %>.user.api_tokens.find(params[:id]).destroy!
+<%- if security_notifications? -%>
+    <%= identity.mailer_class %>.send_security_notification(:api_token_revoked)
+<%- end -%>
+    redirect_to <%= identity.settings_helper_prefix %>_api_tokens_path, notice: "API token revoked.", status: :see_other
+  end
+<%- if impersonatable? || guestable? -%>
+
+  private
+<%- if impersonatable? -%>
+
+  def refuse_impersonation
+    head :forbidden if <%= identity.current_class %>.impersonated_user
+  end
+<%- end -%>
+<%- if guestable? -%>
+
+  def refuse_guest
+    head :forbidden if <%= identity.current_class %>.user.guest?
+  end
+<%- end -%>
+<%- end -%>
+end

@@ -1,0 +1,15 @@
+module <%= identity.class_name %>::Adminable
+  extend ActiveSupport::Concern
+
+  included do
+    attr_readonly :admin # Prevent mass assignment or ordinary updates from elevating an existing account.
+
+    scope :admins, -> { where(admin: true) }
+  end
+<%- if admin_mfa_gate? -%>
+
+  def admin_mfa_enrolled?
+    !admin? || second_factor_enrolled?
+  end
+<%- end -%>
+end

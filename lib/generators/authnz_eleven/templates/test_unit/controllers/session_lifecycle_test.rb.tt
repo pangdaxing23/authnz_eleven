@@ -1,0 +1,102 @@
+require "test_helper"
+
+class <%= identity.module_name %>::SessionLifecycleTest < ActionDispatch::IntegrationTest
+<%- if timeoutable? -%>
+  include ActiveSupport::Testing::TimeHelpers
+
+<%- end -%>
+  setup { @user = <%= identity.plural %>(:bob) }
+<%- if timeoutable? -%>
+
+  test "an idle session is destroyed and the owner is bounced to sign in" do
+    sign_in_as @user
+    get <%= identity.settings_helper_prefix %>_sessions_path
+    assert_response :success
+
+    travel <%= identity.config_reference %>.session.idle_timeout + 1.second do
+      get <%= identity.settings_helper_prefix %>_sessions_path
+      assert_response :redirect
+    end
+
+    assert_empty @user.sessions.reload, "the timed-out session should be destroyed"
+  end
+<%- end -%>
+<%- if last_seenable? && test_drivable_door? -%>
+
+  test "signing in stamps last_seen_at" do
+    assert_nil @user.last_seen_at
+    sign_in_as @user
+    assert_not_nil @user.reload.last_seen_at
+  end
+<%- end -%>
+<%- if rememberable? && password? -%>
+
+  test "'remember me' gives the session cookie an explicit lifetime" do
+    sign_in_as @user, remember: true
+    assert_match(/expires=/i, session_cookie_header,
+                 "a remembered session cookie should persist past the browser session")
+  end
+
+  test "without 'remember me' the session cookie lasts only for the browser session" do
+    sign_in_as @user
+    assert_no_match(/expires=/i, session_cookie_header)
+  end
+<%- end -%>
+<%- if max_sessions_evict? -%>
+
+  test "a sign-in past the concurrent-session cap signs out the least-recently-active session" do
+    limit = <%= identity.config_reference %>.session.concurrent_limit
+    oldest = @user.sessions.create!
+    oldest.update_column(:updated_at, 1.year.ago)
+    (limit - 1).times { @user.sessions.create! }
+    assert_equal limit, @user.sessions.count
+
+    sign_in_as @user
+
+    assert_equal limit, @user.sessions.count, "the cap should still hold after a new sign-in"
+    assert_not <%= identity.session_class %>.exists?(oldest.id),
+               "the least-recently-active session should have been signed out"
+  end
+<%- end -%>
+<%- if max_sessions_prompt? -%>
+
+  test "a sign-in past the concurrent-session cap holds the user until they sign one out" do
+    limit = <%= identity.config_reference %>.session.concurrent_limit
+    limit.times { @user.sessions.create! }
+    sign_in_as @user
+    assert_not @user.within_session_limit?
+
+    get <%= identity.settings_helper_prefix %>_sessions_path
+    assert_response :success
+    get <%= identity.settings_helper_prefix %>_path
+    assert_redirected_to <%= identity.settings_helper_prefix %>_sessions_path
+
+    @user.sessions.order(:created_at).first.destroy!
+    assert @user.within_session_limit?
+    get <%= identity.settings_helper_prefix %>_path
+    assert_response :success, "released once back at the cap"
+  end
+<%- end -%>
+
+  private
+
+<%- if password? -%>
+  def sign_in_as(user, remember: false)
+    post <%= identity.route_scope %>_sign_in_path,
+      params: { <%= sign_in_field %>: user.<%= login_field %>, password: "quilted-lantern-moss-97", remember_me: (remember ? "1" : "0") }
+  end
+<%- else -%>
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+<%- end -%>
+<%- if rememberable? && password? -%>
+
+  def session_cookie_header
+    # Rack may return Set-Cookie as one string or an array, so normalize both forms.
+    Array(response.headers["Set-Cookie"])
+      .flat_map { |line| line.to_s.split("\n") }
+      .find { |line| line.start_with?("<%= identity.cookie_name %>=") }.to_s
+  end
+<%- end -%>
+end

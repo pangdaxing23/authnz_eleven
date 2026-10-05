@@ -1,0 +1,16 @@
+require "test_helper"
+
+class <%= identity.session_class %>Test < ActiveSupport::TestCase
+  setup { @user = <%= identity.plural %>(:bob) }
+
+  test "active and timed_out split sessions by the idle timeout" do
+    fresh = @user.sessions.create!
+    stale = @user.sessions.create!
+    stale.update_column(:updated_at, (<%= identity.config_reference %>.session.idle_timeout + 1.hour).ago)
+
+    assert_includes <%= identity.session_class %>.active,    fresh
+    assert_includes <%= identity.session_class %>.timed_out, stale
+    refute_includes <%= identity.session_class %>.active,    stale
+    refute_includes <%= identity.session_class %>.timed_out, fresh
+  end
+end

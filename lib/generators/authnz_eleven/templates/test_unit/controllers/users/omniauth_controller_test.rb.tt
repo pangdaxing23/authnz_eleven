@@ -1,0 +1,97 @@
+require "test_helper"
+
+class <%= identity.module_name %>::OmniauthControllerTest < ActionDispatch::IntegrationTest
+  setup do
+    OmniAuth.config.test_mode = true
+    mock_provider(uid: "returning-user", email: "bob@example.com")
+    @user = <%= identity.plural %>(:bob)
+    @user.omniauth_identities.create!(provider: "developer", uid: "returning-user")
+  end
+
+  teardown do
+    OmniAuth.config.mock_auth[:developer] = nil
+    OmniAuth.config.test_mode = false
+  end
+
+  test "a returning provider account signs in" do
+    post "<%= omniauth_callback_test_path %>"
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- if invite_only? && phone_invitable? -%>
+
+  test "a provider email cannot accept a phone invitation" do
+    invitation = <%= identity.invitation_class %>.create!(sent_to: "+14155552671", inviter: @user)
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: invitation.generate_token_for(:invitation))
+    mock_provider(uid: "phone-invite", email: "phone-invite@example.com")
+
+    assert_no_difference "<%= identity.class_name %>.count" do
+      post "<%= omniauth_callback_test_path %>"
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    refute_predicate invitation.reload, :accepted?
+  end
+<%- end -%>
+<%- if !omniauth_registration? && !invite_only? -%>
+
+  test "a provider account nobody has seen registers" do
+    mock_provider(uid: "brand-new", email: "brand-new@example.com")
+
+    assert_difference [ "<%= identity.class_name %>.count", "<%= identity.omniauth_identity_class %>.count" ], 1 do
+      post "<%= omniauth_callback_test_path %>"
+    end
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- if principals.email&.required? -%>
+
+  test "a provider that reports no address is told so, not told the address is taken" do
+    mock_provider(uid: "no-address", email: nil)
+
+    assert_no_difference "<%= identity.class_name %>.count" do
+      post "<%= omniauth_callback_test_path %>"
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_equal "That provider didn't share an email address, try signing up another way.", flash[:alert]
+  end
+<%- end -%>
+<%- end -%>
+
+  test "a signed-in <%= identity.singular %> links a new provider account instead of signing in" do
+    sign_in_as @user
+    mock_provider(uid: "a-second-login", email: "whatever@example.com")
+
+    assert_difference "@user.omniauth_identities.count", 1 do
+      post "<%= omniauth_callback_test_path %>"
+    end
+    assert_redirected_to <%= identity.settings_helper_prefix %>_omniauth_identities_path
+  end
+
+  test "linking a provider account owned by someone else is refused, not moved" do
+    owner = <%= identity.plural %>(:alice)
+    owner.omniauth_identities.create!(provider: "developer", uid: "someone-elses-login")
+    mock_provider(uid: "someone-elses-login", email: "whatever@example.com")
+    sign_in_as @user
+
+    assert_no_difference [ "@user.omniauth_identities.count", "owner.omniauth_identities.count" ] do
+      post "<%= omniauth_callback_test_path %>"
+    end
+    assert_redirected_to <%= identity.settings_helper_prefix %>_omniauth_identities_path
+    assert_equal owner.id, <%= identity.omniauth_identity_class %>.find_by!(provider: "developer", uid: "someone-elses-login").<%= identity.foreign_key %>
+  end
+
+  test "the failure endpoint returns to sign in" do
+    get "<%= omniauth_failure_test_path %>", params: { message: "invalid_credentials" }
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+  end
+
+  private
+
+  def mock_provider(uid:, email:)
+    OmniAuth.config.mock_auth[:developer] = OmniAuth::AuthHash.new(
+      provider: "developer", uid: uid, info: { email: email }
+    )
+  end
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

@@ -1,0 +1,14 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1>Rename passkey</h1>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_passkey_path(@passkey), method: :patch do |form| %>
+  <div>
+    <%%= form.label :name %><br>
+    <%%= form.text_field :name, value: @passkey.name, required: true, autofocus: true %>
+  </div>
+
+  <div><%%= form.submit "Save" %></div>
+<%% end %>
+
+<p><%%= link_to "Back to passkeys", <%= identity.settings_helper_prefix %>_passkeys_path %></p>

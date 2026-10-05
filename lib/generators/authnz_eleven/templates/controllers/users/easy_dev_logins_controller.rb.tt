@@ -1,0 +1,19 @@
+class <%= identity.module_name %>::EasyDevLoginsController < <%= identity.controller_superclass %>
+  allow_unauthenticated_access
+  before_action :ensure_development
+
+  def create
+    user = <%= find_by_login_expr("params[:#{sign_in_field}]") %>
+    return redirect_to <%= identity.route_scope %>_sign_in_path(<%= login_hint_param %>: params[:<%= sign_in_field %>]), alert: "No user with that <%= login_keys_phrase %>." unless user
+
+    <%= sign_in_call("user", via: :easy_dev_login, may_challenge: false) %>
+    redirect_to after_authentication_url, notice: "Now signed in as #{user.<%= principals.display.column %>}.", status: :see_other
+  end
+
+  private
+
+  def ensure_development
+    return if Rails.env.development?
+    redirect_to <%= identity.route_scope %>_sign_in_path, alert: "Easy dev login is only available in development."
+  end
+end

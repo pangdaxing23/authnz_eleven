@@ -1,0 +1,14 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1>Rename security key</h1>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_mfa_security_key_path(@security_key), method: :patch do |form| %>
+  <div>
+    <%%= label_tag :name %><br>
+    <%%= text_field_tag :name, @security_key.name, required: true, autofocus: true %>
+  </div>
+
+  <div><%%= form.submit "Save" %></div>
+<%% end %>
+
+<p><%%= link_to "Back to security keys", <%= identity.settings_helper_prefix %>_mfa_security_keys_path %></p>

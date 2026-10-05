@@ -1,0 +1,7 @@
+<h1>API token created</h1>
+
+<p>Copy this token now. It will not be shown again.</p>
+<pre><%%= @secret %></pre>
+<p>Expires <%%= @api_token.expires_at %>. Keep it private; anyone with this token can use your API as you.</p>
+
+<p><%%= link_to "Back to API tokens", <%= identity.settings_helper_prefix %>_api_tokens_path %></p>

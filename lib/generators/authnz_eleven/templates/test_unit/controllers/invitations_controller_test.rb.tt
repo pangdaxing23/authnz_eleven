@@ -1,0 +1,230 @@
+require "test_helper"
+
+class <%= identity.namespaced? ? "#{identity.module_name}::InvitationsController" : "InvitationsController" %>Test < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+
+  setup { @inviter = <%= identity.plural %>(:alice) }
+<%- if teams? -%>
+
+  def invite(address, team: <%= identity.team_class %>.create!(name: "Acme"))
+    <%= identity.invitation_class %>.create!(sent_to: address, inviter: @inviter, team:)
+  end
+<%- else -%>
+
+  def invite(address) = <%= identity.invitation_class %>.create!(sent_to: address, inviter: @inviter)
+<%- end -%>
+
+<%- if teams? -%>
+  test "opening the link while signed in spends nothing until it is confirmed" do
+    invitee = <%= identity.plural %>(:bob)
+    invitation = invite(invitee.<%= email_invitable? ? "email" : "phone" %>)
+    sign_in_as invitee
+
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: invitation.offer)
+
+    assert_response :success
+    assert_not invitation.reload.accepted?
+  end
+
+  test "an existing account signs in, comes back to the invitation, and accepts it" do
+    invitee = <%= identity.plural %>(:bob)
+    invitation = invite(invitee.<%= email_invitable? ? "email" : "phone" %>)
+    token = invitation.offer
+
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: token)
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_equal <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: token), session[:<%= interrupted_destination_key %>]
+
+    sign_in_as invitee
+    assert_not invitation.reload.accepted?, "signing in accepts nothing"
+
+    patch <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: token)
+    assert_predicate invitation.reload, :accepted?
+    assert invitee.member_of?(invitation.team)
+    assert_equal "You've joined Acme.", flash[:notice]
+  end
+
+  test "a second invitation to a team already joined is accepted without a second membership" do
+    invitee = <%= identity.plural %>(:bob)
+    team = <%= identity.team_class %>.create!(name: "Acme")
+    first = invite(invitee.<%= email_invitable? ? "email" : "phone" %>, team:)
+    second = invite(invitee.<%= email_invitable? ? "email" : "phone" %>, team:)
+
+    assert first.accept(invitee)
+    assert second.accept(invitee)
+    assert_equal 1, team.memberships.where(<%= identity.singular %>: invitee).count
+  end
+
+  test "confirming spends the invitation its own link names" do
+    invitee = <%= identity.plural %>(:bob)
+    mine = invite(invitee.<%= email_invitable? ? "email" : "phone" %>)
+    token = mine.offer
+    stale = invite(invitee.<%= email_invitable? ? "email" : "phone" %>)
+    sign_in_as invitee
+
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: stale.offer)
+    patch <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: token)
+
+    assert mine.reload.accepted?, "the confirmed link is the one that gets spent"
+    assert_not stale.reload.accepted?, "the session's last link is not spent by another link's button"
+  end
+
+  test "accepting while signed in lands on the invited team" do
+    invitee = <%= identity.plural %>(:bob)
+    invitee.memberships.create!(team: <%= identity.team_class %>.create!(name: "Original"))
+    invitation = invite(invitee.<%= email_invitable? ? "email" : "phone" %>)
+    sign_in_as invitee
+
+    patch <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: invitation.offer)
+
+<%- if scope_teams? -%>
+    assert_redirected_to <%= team_root_helper %>(team_id: invitation.team)
+<%- elsif middleware_teams? -%>
+    assert_redirected_to root_url(script_name: "/#{invitation.team.id}")
+<%- else -%>
+    assert_equal invitation.team, invitee.sessions.sole.team
+<%- end -%>
+    assert_equal "You've joined Acme.", flash[:notice]
+  end
+
+  test "an invitation with no team whose address signed up first is accepted and the account still holds for a team" do
+    invitee = <%= identity.plural %>(:bob)
+    invitee.memberships.destroy_all
+    invitation = invite(<%= email_invitable? ? '"stranger-#{SecureRandom.hex(4)}@example.com"' : '"+1415555#{rand(1000..9999)}"' %>, team: nil)
+    invitation.update_column(:sent_to, invitee.<%= email_invitable? ? "email" : "phone" %>)
+    sign_in_as invitee
+
+    patch <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: invitation.offer)
+
+    assert invitation.reload.accepted?
+<%- if team_gated_page -%>
+    get <%= team_gated_page %>
+    assert_redirected_to <%= identity.nested_helper("teams_path") %>
+<%- end -%>
+  end
+<%- else -%>
+  test "an existing account has nothing to accept" do
+    invitee = <%= identity.plural %>(:bob)
+    invitation = invite(<%= email_invitable? ? '"stranger-#{SecureRandom.hex(4)}@example.com"' : '"+1415555#{rand(1000..9999)}"' %>)
+    sign_in_as invitee
+
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: invitation.offer)
+
+    assert_redirected_to <%= identity.namespaced? ? "#{identity.route_scope}_root_path" : "root_path" %>
+    assert_not invitation.reload.accepted?
+  end
+<%- end -%>
+
+  test "a tampered invitation link is refused" do
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: "not-a-real-token")
+    assert_redirected_to <%= identity.namespaced? ? "#{identity.route_scope}_root_path" : "root_path" %>
+  end
+
+  test "a stranger accepting an invitation is routed to create an account" do
+    destination = <%= email_invitable? ? '"invitee-#{SecureRandom.hex(4)}@example.com"' : '"+1415555#{rand(1000..9999)}"' %>
+    invitation = invite(destination)
+    token = invitation.offer
+
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: token)
+    assert_redirected_to <%= registration_entry_path %>
+    assert_equal token, session[:<%= session_key(:pending_invitation_token) %>],
+      "the session is the only thing carrying the invitation from here on"
+  end
+<%- if test_drivable_door? -%>
+
+  test "signing in drops the invitation from the session" do
+    invitation = invite(<%= email_invitable? ? '"invitee-#{SecureRandom.hex(4)}@example.com"' : '"+1415555#{rand(1000..9999)}"' %>)
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: invitation.offer)
+
+    sign_in_as <%= identity.plural %>(:bob)
+
+    assert_nil session[:<%= session_key(:pending_invitation_token) %>]
+  end
+<%- end -%>
+
+  test "changing the destination invalidates an outstanding link" do
+    invitation = invite(<%= email_invitable? ? '"first-#{SecureRandom.hex(4)}@example.com"' : '"+1415555#{rand(1000..9999)}"' %>)
+    token = invitation.offer
+    invitation.update!(sent_to: <%= email_invitable? ? '"second-#{SecureRandom.hex(4)}@example.com"' : '"+1415555#{rand(1000..9999)}"' %>)
+
+    assert_nil <%= identity.invitation_class %>.find_by_token_for(:invitation, token)
+  end
+
+  test "accepting spends the link" do
+    destination = <%= email_invitable? ? '"invitee-#{SecureRandom.hex(4)}@example.com"' : '"+1415555#{rand(1000..9999)}"' %>
+    invitation = invite(destination)
+    token = invitation.offer
+    invitee = <%= identity.class_name %>.create!(<%= account_fixture_literal(indent: 4) %>.merge(<%= email_invitable? ? "email" : "phone" %>: destination))
+    invitation.accept(invitee)
+
+    assert_nil <%= identity.invitation_class %>.find_by_token_for(:invitation, token)
+  end
+<%- if typed_registration? -%>
+
+  test "an invited stranger signs up and the invitation is applied" do
+    destination = <%= email_invitable? ? '"invitee-#{SecureRandom.hex(4)}@example.com"' : '"+1415555#{rand(1000..9999)}"' %>
+    invitation = invite(destination)
+
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: invitation.offer)
+    assert_redirected_to <%= identity.route_scope %>_sign_up_path
+
+    post <%= identity.route_scope %>_sign_up_path, params: sign_up_params(<%= email_invitable? ? "email" : "phone" %>: destination)
+
+<%- unless email_invitable? ? email_invitation_completes_registration? : phone_invitation_completes_registration? -%>
+    assert_nil <%= identity.class_name %>.find_by(<%= email_invitable? ? "email" : "phone" %>: destination)
+    assert <%= identity.pending_registration_class %>.exists?
+    assert_not_predicate invitation.reload, :accepted?
+<%- else -%>
+    <%= identity.singular %> = <%= identity.class_name %>.find_by(<%= email_invitable? ? "email" : "phone" %>: destination)
+    assert <%= identity.singular %>, "clicking the invitation verifies the address, so the account is minted here"
+    assert_predicate invitation.reload, :accepted?
+    assert_equal <%= identity.singular %>, invitation.invitee
+<%- if teams? -%>
+    assert <%= identity.singular %>.member_of?(invitation.team)
+<%- end -%>
+<%- end -%>
+  end
+<%- if phone_invitable? -%>
+
+  test "a phone invitation signs up without sending a verification code" do
+    number = "+1415555#{rand(1000..9999)}"
+    invitation = invite(number)
+    token = invitation.offer
+    clear_enqueued_jobs
+
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: token)
+    assert_redirected_to <%= identity.route_scope %>_sign_up_path
+
+    assert_no_enqueued_jobs only: SmsDeliveryJob do
+      post <%= identity.route_scope %>_sign_up_path, params: sign_up_params.except(:phone)
+    end
+
+<%- unless phone_invitation_completes_registration? -%>
+    assert_nil <%= identity.class_name %>.find_by(phone: number)
+    assert <%= identity.pending_registration_class %>.exists?
+    assert_not_predicate invitation.reload, :accepted?
+<%- else -%>
+    <%= identity.singular %> = <%= identity.class_name %>.find_by(phone: number)
+    assert <%= identity.singular %>
+    assert_predicate invitation.reload, :accepted?
+    assert_equal <%= identity.singular %>, invitation.invitee
+<%- if teams? -%>
+    assert <%= identity.singular %>.member_of?(invitation.team)
+<%- end -%>
+<%- end -%>
+  end
+<%- end -%>
+<%- end -%>
+
+  private
+<%- if typed_registration? -%>
+
+  def sign_up_params(**overrides)
+    <%= sign_up_fixture_literal(indent: 4) %>.merge(overrides)
+  end
+<%- end -%>
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+end

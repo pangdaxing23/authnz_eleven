@@ -1,0 +1,11 @@
+en:
+  activerecord:
+    attributes:
+      <%= identity.singular %>:
+        pending_email: "Email"
+        pending_phone: "Phone"
+        password_challenge: "Current password"
+<%- if invitable? -%>
+      <%= identity.invitation_file %>:
+        sent_to: "<%= invitation_recipient_label %>"
+<%- end -%>

@@ -1,0 +1,22 @@
+module <%= identity.namespaced_class("Eventable") %>
+  extend ActiveSupport::Concern
+
+  included do
+    has_many :events, as: :subject, dependent: :destroy
+  end
+
+  def record_event(event_type, actor: nil, context: nil, occurred_at: nil, data: nil)
+    <%= identity.event_class %>.record!(
+      event_type: event_type,
+      subject: self,
+      actor: actor,
+      context: context,
+      occurred_at: occurred_at,
+      data: data
+    )
+  end
+
+  def event_context
+    self
+  end
+end

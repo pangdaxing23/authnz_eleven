@@ -1,0 +1,4 @@
+class <%= admin_module %>::DashboardController < <%= admin_controller %>
+  def index
+  end
+end

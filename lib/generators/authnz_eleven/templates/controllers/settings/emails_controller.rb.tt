@@ -1,0 +1,93 @@
+class <%= identity.settings_module %>::EmailsController < <%= identity.settings_controller %>
+<%- if sudoable? -%>
+  require_sudo message: "Please confirm it's you before changing your email address.", only: :update
+<%- end -%>
+<%- if email_verifiable? -%>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.email_verification, only: :update,
+    with: -> { redirect_to edit_<%= identity.settings_helper_prefix %>_email_path, alert: "Too many links requested. Please try again later.", status: :see_other })
+<%- end -%>
+<%- if password? && !sudoable? -%>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.password_challenge, only: :update, name: "password_challenge",
+    with: -> { redirect_to edit_<%= identity.settings_helper_prefix %>_email_path, alert: "Too many attempts. Please try again later.", status: :see_other })
+<%- end -%>
+  before_action :set_user
+
+  def edit
+  end
+<%- if email_verifiable? -%>
+
+  def update
+<%- if security_notifications? -%>
+    old_email = @user.email
+<%- end -%>
+<%- if password? && !sudoable? -%>
+    @user.assign_attributes(user_params.except(:email))
+<%- end -%>
+    @user.stage_email(user_params[:email])
+    return render :edit, status: :unprocessable_entity unless @user.save
+    unless @user.pending_email
+<%- if security_notifications? -%>
+      <%= identity.mailer_class %>.send_security_notification(:email_changed, to: old_email) if @user.email_previously_changed?
+<%- end -%>
+      return redirect_to_settled
+    end
+
+    <%= deferred_call("@user", :send_email_change_verification) %>
+    redirect_to_edit("Check your email for a link to confirm your new address.")
+  end
+<%- else -%>
+
+  def update
+<%- if security_notifications? -%>
+    old_email = @user.email
+<%- end -%>
+    if @user.update(user_params)
+<%- if security_notifications? -%>
+      <%= identity.mailer_class %>.send_security_notification(:email_changed, to: old_email) if @user.email_previously_changed?
+<%- end -%>
+      redirect_to_settled
+    else
+      render :edit, status: :unprocessable_entity
+    end
+  rescue ActiveRecord::RecordNotUnique
+    respond_to_taken_email
+  end
+<%- end -%>
+
+  private
+<%- unless email_verifiable? -%>
+
+  def respond_to_taken_email
+    @user.errors.add(:email, :taken)
+    render :edit, status: :unprocessable_entity
+  end
+<%- end -%>
+
+  def set_user
+    @user = <%= identity.current_class %>.user
+  end
+
+  def user_params
+<%- if password? && !sudoable? -%>
+    params.permit(:email, :password_challenge).with_defaults(password_challenge: "")
+<%- else -%>
+    params.permit(:email)
+<%- end -%>
+  end
+
+  def redirect_to_settled
+<%- if principals.email.optional? -%>
+    return redirect_to_edit("Your email has been removed.") if @user.email.blank?
+
+<%- end -%>
+<%- unless email_verifiable? -%>
+    return redirect_to_edit("Your email has been changed.") if @user.email_previously_changed?
+
+<%- end -%>
+    redirect_to_edit("That's already your email address.")
+  end
+
+  def redirect_to_edit(notice)
+    redirect_to edit_<%= identity.settings_helper_prefix %>_email_path, notice: notice, status: :see_other
+  end
+end

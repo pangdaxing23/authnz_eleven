@@ -1,0 +1,11 @@
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<h1>Confirm your email</h1>
+
+<p>Click the link we sent to <%%= @registration.email %> to finish creating your account.</p>
+
+<%%# Always offer resend. If we only showed it when a link had actually been sent it would reveal whether the address already has an account. %>
+<%%= button_to "Send me another link", <%= identity.route_scope %>_verify_email_path, method: :post %>
+
+<p><%%= link_to "<%= typed_registration? ? "Back to sign up" : "Back to sign in" %>", <%= registration_entry_path %> %></p>

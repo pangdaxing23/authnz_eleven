@@ -1,0 +1,12 @@
+class <%= identity.omniauth_identity_class %> < ApplicationRecord
+  belongs_to :<%= identity.singular %>
+
+  validates :provider, presence: true
+  validates :uid, presence: true, uniqueness: { scope: :provider }
+
+  # The provider named by a sign-in, e.g. :google for google_oauth2.
+  def self.via(provider) = provider.to_s.split("_").first.downcase.to_sym
+
+  def via = self.class.via(provider)
+  def provider_name = via.to_s.titleize
+end

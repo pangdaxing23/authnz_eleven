@@ -1,0 +1,138 @@
+require "test_helper"
+
+class <%= identity.module_name %>::Omniauth::RegistrationsControllerTest < ActionDispatch::IntegrationTest
+<%- if omniauth_registration_verifies_phone? -%>
+  include ActiveJob::TestHelper
+
+<%- end -%>
+  setup do
+    OmniAuth.config.test_mode = true
+    OmniAuth.config.mock_auth[:developer] = OmniAuth::AuthHash.new(
+      provider: "developer", uid: "first-login",
+      info: { email: "provider-user@example.com" }
+    )
+<%- if invite_only? -%>
+    invitation = <%= identity.invitation_class %>.create!(sent_to: "provider-user@example.com"<%= %(, sent_to_channel: "email") if multi_channel_invitable? %>, inviter: <%= identity.plural %>(:alice))
+    get <%= identity.namespaced? ? "#{identity.route_scope}_accept_invitation_path" : "accept_invitation_path" %>(token: invitation.generate_token_for(:invitation))
+<%- end -%>
+  end
+
+  teardown do
+    OmniAuth.config.mock_auth[:developer] = nil
+    OmniAuth.config.test_mode = false
+  end
+
+  test "a first-time provider login is sent to the completion form, no account yet" do
+    assert_no_difference [ "<%= identity.class_name %>.count", "<%= identity.omniauth_identity_class %>.count" ] do
+      post "<%= omniauth_callback_test_path %>"
+    end
+    assert_redirected_to new_<%= identity.route_scope %>_omniauth_registration_path
+  end
+
+<%- if omniauth_registration_verifies_phone? -%>
+  test "the number the form collects is verified before the account exists" do
+    post "<%= omniauth_callback_test_path %>"
+
+    assert_no_difference "<%= identity.class_name %>.count" do
+      post <%= identity.route_scope %>_omniauth_registration_path, params: <%= omniauth_profile_params_literal %>
+    end
+    assert_redirected_to <%= identity.route_scope %>_verify_phone_path
+
+    code = enqueued_jobs.reverse_each.filter_map { |job| job.to_s[/(\d{6}) is your/, 1] }.first
+    assert_difference [ "<%= identity.class_name %>.count", "<%= identity.omniauth_identity_class %>.count" ], 1 do
+      patch <%= identity.route_scope %>_verify_phone_path, params: { code: code }
+    end
+
+    user = <%= identity.class_name %>.last
+    assert user.phone.present?
+    assert_equal "developer", user.omniauth_identities.sole.provider
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- else -%>
+  test "completing the form creates the account with the provider's email" do
+    post "<%= omniauth_callback_test_path %>"
+    assert_difference [ "<%= identity.class_name %>.count", "<%= identity.omniauth_identity_class %>.count" ], 1 do
+      post <%= identity.route_scope %>_omniauth_registration_path, params: <%= omniauth_profile_params_literal %>
+    end
+    user = <%= identity.class_name %>.last
+    assert_equal "developer", user.omniauth_identities.sole.provider
+<%- if principals.email -%>
+    assert_equal "provider-user@example.com", user.email
+<%- end -%>
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- if principals.email -%>
+
+  test "completing the form with an address that already has an account is refused" do
+    <%= identity.plural %>(:alice).update_column(:email, "provider-user@example.com")
+
+    post "<%= omniauth_callback_test_path %>"
+    assert_no_difference "<%= identity.class_name %>.count" do
+      post <%= identity.route_scope %>_omniauth_registration_path, params: <%= omniauth_profile_params_literal %>
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_nil cookies[:<%= identity.cookie_name %>].presence
+  end
+<%- end -%>
+
+  test "a provider account that finished signing up elsewhere is sent to sign in" do
+    post "<%= omniauth_callback_test_path %>"
+    <%= identity.plural %>(:alice).omniauth_identities.create!(provider: "developer", uid: "first-login")
+
+    assert_no_difference "<%= identity.class_name %>.count" do
+      post <%= identity.route_scope %>_omniauth_registration_path, params: <%= omniauth_profile_params_literal %>
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+  end
+<%- end -%>
+<%- if principals.username -%>
+
+  test "a taken username is refused on the form, and the sign-up waits" do
+    post "<%= omniauth_callback_test_path %>"
+
+    assert_no_difference "<%= identity.class_name %>.count" do
+      post <%= identity.route_scope %>_omniauth_registration_path,
+        params: <%= omniauth_profile_params_literal %>.merge(username: <%= identity.plural %>(:alice).username)
+    end
+    assert_response :unprocessable_entity
+  end
+<%- end -%>
+
+<%- if principals.email&.required? -%>
+  test "a provider that reports no address is turned away at the callback" do
+    OmniAuth.config.mock_auth[:developer] = OmniAuth::AuthHash.new(
+      provider: "developer", uid: "addressless", info: {}
+    )
+
+    assert_no_difference "<%= identity.class_name %>.count" do
+      post "<%= omniauth_callback_test_path %>"
+    end
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+    assert_equal "That provider didn't share an email address, try signing up another way.", flash[:alert]
+  end
+
+<%- end -%>
+  test "the form without a provider sign-up in progress bounces to sign in" do
+    post <%= identity.route_scope %>_omniauth_registration_path, params: <%= omniauth_profile_params_literal %>
+    assert_redirected_to <%= identity.route_scope %>_sign_in_path
+  end
+<%- if channel_less_registration? -%>
+
+  test "a provider that reports no address completes the sign-up outright" do
+    OmniAuth.config.mock_auth[:developer] = OmniAuth::AuthHash.new(
+      provider: "developer", uid: "addressless", info: {}
+    )
+    post "<%= omniauth_callback_test_path %>"
+
+    assert_difference [ "<%= identity.class_name %>.count", "<%= identity.omniauth_identity_class %>.count" ], 1 do
+      post <%= identity.route_scope %>_omniauth_registration_path, params: <%= omniauth_profile_params_literal %>
+    end
+
+    user = <%= identity.class_name %>.last
+    assert_nil user.email
+    assert_equal "developer", user.omniauth_identities.sole.provider
+    assert_equal [ :omniauth ], user.sign_in_methods
+    assert cookies[:<%= identity.cookie_name %>].present?
+  end
+<%- end -%>
+end

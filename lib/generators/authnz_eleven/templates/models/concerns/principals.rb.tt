@@ -1,0 +1,67 @@
+module <%= identity.principals_concern %>
+  extend ActiveSupport::Concern
+
+  included do
+<%- principals.each_with_index do |principal, index| -%>
+<%- unless index.zero? -%>
+
+<%- end -%>
+    normalizes :<%= principal.column %>, with: <%= principal.normalization(config_reference: identity.config_reference) %>
+<%- if principal.channel? && encrypted_pii? -%>
+    encrypts :<%= principal.column %>, deterministic: true # .find_by works, sorting, ranges, and %LIKE% will not.
+<%- end -%>
+<%- if principal.type == :email && coy? -%>
+    # Do not add a uniqueness validation for email or phone as this would reveal the existence of users. The database index enforces uniqueness.
+<%- end -%>
+<%- if principal.dedicated_validation? -%>
+<%- if guest_excused_from_phone? -%>
+    validates :phone, presence: true, unless: :guest?
+<%- elsif principal.required? -%>
+    validates :phone, presence: true
+<%- end -%>
+    validates :phone, phone: { allow_blank: true, countries: <%= identity.config_reference %>.phone.allowed_countries, format: :e164 }
+<%- else -%>
+    validates :<%= principal.column %>, <%= principal.validates_arguments %>
+<%- end -%>
+<%- if principal.type == :username -%>
+    validate :username_not_forbidden
+<%- end -%>
+<%- end -%>
+<%- if login_key_may_be_missing? -%>
+
+    validate :at_least_one_login_key
+<%- end -%>
+<%- if contactable_validation? -%>
+
+    validate :must_be_contactable
+<%- end -%>
+  end
+<%- if principals.username || login_key_may_be_missing? -%>
+
+  private
+<%- end -%>
+<%- if login_key_may_be_missing? -%>
+
+  def at_least_one_login_key
+    return if <%= login_principals.map { |p| "#{p.column}.present?" }.join(" || ") %>
+
+    errors.add(:base, "Enter <%= login_keys_article_phrase %>.")
+  end
+<%- end -%>
+<%- if contactable_validation? -%>
+
+  def must_be_contactable
+    return if <%= principals.select(&:channel?).map { |p| "#{p.column}.present?" }.join(" || ") %>
+
+    errors.add(:base, "Add <%= channel_keys_article_phrase %>.")
+  end
+<%- end -%>
+<%- if principals.username -%>
+
+  def username_not_forbidden
+    return if username.blank?
+
+    errors.add(:username, "is forbidden") if <%= identity.config_reference %>.username.forbidden.include?(username.downcase)
+  end
+<%- end -%>
+end

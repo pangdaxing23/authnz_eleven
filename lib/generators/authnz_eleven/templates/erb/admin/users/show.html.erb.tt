@@ -1,0 +1,70 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1><%%= @user.<%= principals.display.column %> %></h1>
+<p>Admin: <%%= @user.admin? %></p>
+<%- if second_factor? -%>
+<p>
+  Second factor: <%%= @user.second_factor_enrolled? %>
+  <%% if @user.second_factor_enrolled? && !@user.admin? %>
+    <%%= button_to "Reset second factor", reset_second_factor_<%= admin_helper("user_path") %>(@user), method: :post,
+          data: {turbo_confirm: "Clear every second factor on #{@user.<%= principals.display.column %>}'s account? Their recovery codes go too."} %>
+  <%% end %>
+</p>
+<%- end -%>
+<%- if deadboltable? -%>
+<p>
+  Password deadbolted: <%%= @user.deadbolted? %>
+  <%% if @user.deadbolted? %>
+    <%%= button_to "Clear deadbolt", undeadbolt_<%= admin_helper("user_path") %>(@user), method: :post %>
+  <%% end %>
+</p>
+<%- end -%>
+<%- if bannable? -%>
+<p>
+  Suspended: <%%= @user.banned? %>
+  <%% if @user.banned? %>
+    <%%= button_to "Lift suspension", unban_<%= admin_helper("user_path") %>(@user), method: :post %>
+  <%% elsif !@user.admin? %>
+    <%%= button_to "Suspend", ban_<%= admin_helper("user_path") %>(@user), method: :post,
+          data: {turbo_confirm: "Suspend #{@user.<%= principals.display.column %>}? This ends all their sessions."} %>
+  <%% end %>
+</p>
+<%- end -%>
+
+<h2>Sessions</h2>
+<%%= button_to "End all sessions", sessions_<%= admin_helper("user_path") %>(@user), method: :delete %>
+<table>
+  <thead>
+    <tr><th>Device</th><th>IP</th><th>Created</th><th></th></tr>
+  </thead>
+  <tbody>
+    <%% @sessions.each do |session| %>
+      <tr>
+        <td><%%= session.user_agent %></td>
+        <td><%%= session.ip_address %></td>
+        <td><%%= session.created_at %></td>
+        <td><%%= button_to "End", <%= admin_helper("session_path") %>(session), method: :delete %></td>
+      </tr>
+    <%% end %>
+  </tbody>
+</table>
+<%- if trackable? -%>
+
+<h2>Recent activity</h2>
+<table>
+  <thead>
+    <tr><th>When</th><th>Event</th><th>IP</th></tr>
+  </thead>
+  <tbody>
+    <%% @events.each do |event| %>
+      <tr>
+        <td><%%= event.occurred_at %></td>
+        <td><%%= event.event_type %></td>
+        <td><%%= event.ip_address %></td>
+      </tr>
+    <%% end %>
+  </tbody>
+</table>
+<%- end -%>
+
+<p><%%= link_to "Back to users", <%= admin_helper("users_path") %> %></p>

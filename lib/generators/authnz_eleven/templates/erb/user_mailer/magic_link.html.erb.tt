@@ -1,0 +1,5 @@
+<p>Hi,</p>
+
+<p>Use the link below to sign in. It expires in 20 minutes.</p>
+
+<p><%%= link_to "Sign in", <%= identity.route_scope %>_magic_link_url(sid: @signed_id) %></p>

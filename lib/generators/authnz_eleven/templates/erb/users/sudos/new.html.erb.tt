@@ -1,0 +1,9 @@
+<p style="color: red"><%%= alert %></p>
+
+<h1>Confirm it's you</h1>
+
+<p><%%= session[:<%= session_key(:sudo_message) %>].presence || "Please confirm it's you before continuing." %></p>
+
+<%%= form_with url: <%= identity.route_scope %>_sudo_path, method: :post do |form| %>
+  <%%= render "<%= identity.sudo_partial %>", form:, submit: "Confirm" %>
+<%% end %>

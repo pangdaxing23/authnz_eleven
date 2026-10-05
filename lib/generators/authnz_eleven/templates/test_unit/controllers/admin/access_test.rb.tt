@@ -1,0 +1,139 @@
+require "test_helper"
+
+class <%= admin_module %>::AccessTest < ActionDispatch::IntegrationTest
+  test "the admin area is a 404 for anonymous visitors" do
+    get <%= admin_helper("root_path") %>
+    assert_response :not_found
+  end
+<%- if password? -%>
+
+  test "the admin area is a 404 for a signed-in non-admin" do
+    sign_in_as <%= identity.plural %>(:bob)
+    get <%= admin_helper("root_path") %>
+    assert_response :not_found
+  end
+
+<%- if password_rotatable? -%>
+
+  test "the admin area is a 404 for a non-admin held at a completion gate" do
+    sign_in_as <%= identity.plural %>(:bob)
+<%- if password_rotatable? -%>
+    <%= identity.plural %>(:bob).update!(password_changed_at: 1.year.ago)
+<%- end -%>
+
+    get <%= admin_helper("root_path") %>
+    assert_response :not_found
+  end
+<%- end -%>
+
+  test "an admin can reach the dashboard" do
+    sign_in_as <%= identity.plural %>(:alice)
+<%- if admin_mfa_gate? -%>
+    <%= enroll_second_factor_expr("#{identity.plural}(:alice)") %>
+<%- end -%>
+    get <%= admin_helper("root_path") %>
+    assert_response :success
+  end
+
+  test "the destructive actions refuse an admin target" do
+    sign_in_as <%= identity.plural %>(:alice)
+<%- if admin_mfa_gate? -%>
+    <%= enroll_second_factor_expr("#{identity.plural}(:alice)") %>
+<%- end -%>
+
+    [ <%= identity.plural %>(:carol), <%= identity.plural %>(:alice) ].each do |admin|
+      delete <%= admin_helper("user_path") %>(admin)
+      assert_redirected_to <%= admin_helper("users_path") %>
+      assert <%= identity.class_name %>.exists?(admin.id), "an admin must not be deleted here"
+<%- if bannable? -%>
+
+      post ban_<%= admin_helper("user_path") %>(admin)
+      assert_not admin.reload.banned?, "an admin must not be suspended here"
+<%- end -%>
+<%- if second_factor? -%>
+
+      <%= enroll_second_factor_expr("admin") %> unless admin.second_factor_enrolled?
+      post reset_second_factor_<%= admin_helper("user_path") %>(admin)
+      assert admin.reload.second_factor_enrolled?, "an admin's second factor must survive"
+<%- end -%>
+    end
+  end
+<%- if impersonatable? && !admin_mfa_gate? -%>
+
+  test "an admin can impersonate another user, and stop" do
+    sign_in_as <%= identity.plural %>(:alice)
+    post <%= admin_helper("impersonate_user_path") %>(<%= identity.plural %>(:bob))
+    assert_redirected_to <%= identity.nested_helper("root_path") %>
+
+    get <%= admin_helper("root_path") %>
+    assert_response :not_found
+
+    delete <%= identity.nested_helper("impersonation_path") %>
+    assert_redirected_to <%= admin_helper("root_path") %>
+
+    get <%= admin_helper("root_path") %>
+    assert_response :success
+  end
+
+  test "impersonation expires on its own" do
+    sign_in_as <%= identity.plural %>(:alice)
+    post <%= admin_helper("impersonate_user_path") %>(<%= identity.plural %>(:bob))
+
+    travel <%= identity.config_reference %>.impersonation.duration + 1.minute do
+      get <%= identity.nested_helper("root_path") %>
+      assert_redirected_to <%= admin_helper("root_path") %>
+
+      get <%= admin_helper("root_path") %>
+      assert_response :success, "alice should be herself again"
+    end
+  end
+
+  test "an admin cannot impersonate an admin, including themselves" do
+    sign_in_as <%= identity.plural %>(:alice)
+
+    post <%= admin_helper("impersonate_user_path") %>(<%= identity.plural %>(:carol))
+    assert_redirected_to <%= admin_helper("users_path") %>
+
+    post <%= admin_helper("impersonate_user_path") %>(<%= identity.plural %>(:alice))
+    assert_redirected_to <%= admin_helper("users_path") %>
+
+    get <%= admin_helper("root_path") %>
+    assert_response :success, "alice should still be herself, with her admin access intact"
+  end
+<%- if trackable? -%>
+
+  test "impersonation is recorded at both ends" do
+    sign_in_as <%= identity.plural %>(:alice)
+    post <%= admin_helper("impersonate_user_path") %>(<%= identity.plural %>(:bob))
+    delete <%= identity.nested_helper("impersonation_path") %>
+
+    events = <%= identity.plural %>(:bob).events.chronological.last(2)
+    assert_equal [ "<%= identity.singular %>.impersonation_started", "<%= identity.singular %>.impersonation_stopped" ],
+                 events.map(&:event_type)
+    assert_equal [ <%= identity.plural %>(:alice), <%= identity.plural %>(:alice) ], events.map(&:actor)
+  end
+<%- end -%>
+
+  test "a non-admin cannot impersonate" do
+    sign_in_as <%= identity.plural %>(:bob)
+    post <%= admin_helper("impersonate_user_path") %>(<%= identity.plural %>(:alice))
+    assert_response :not_found
+  end
+
+  test "the stop-impersonating route is a 404 when nobody is impersonating" do
+    delete <%= identity.nested_helper("impersonation_path") %>
+    assert_response :not_found
+
+    sign_in_as <%= identity.plural %>(:bob)
+    delete <%= identity.nested_helper("impersonation_path") %>
+    assert_response :not_found
+  end
+<%- end -%>
+
+  private
+
+  def sign_in_as(user)
+<%= test_sign_in_body %>
+  end
+<%- end -%>
+end

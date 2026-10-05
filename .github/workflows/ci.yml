@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+      - name: Install dependencies
+        run: |
+          bundle install
+          BUNDLE_GEMFILE=test/dummy/Gemfile bundle install
+      - name: Unit tests, generator tests, and lint
+        run: bundle exec rake
+
+  boot:
+    name: Boot tests (${{ matrix.database }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - database: SQLite
+            task: test:boot
+          - database: PostgreSQL
+            task: test:boot:postgresql
+          - database: MySQL
+            task: test:boot:mysql
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+      - name: Install dependencies
+        run: |
+          bundle install
+          BUNDLE_GEMFILE=test/dummy/Gemfile bundle install
+      - name: Generated-app boot tests
+        run: bundle exec rake ${{ matrix.task }}
+        env:
+          PARALLEL_WORKERS: '1'

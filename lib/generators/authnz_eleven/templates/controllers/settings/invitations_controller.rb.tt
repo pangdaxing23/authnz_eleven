@@ -1,0 +1,61 @@
+class <%= identity.settings_module %>::InvitationsController < <%= identity.settings_controller %>
+  rate_limit(**<%= identity.config_reference %>.rate_limits.invitation, only: :create,
+    with: -> { redirect_to new_<%= identity.settings_helper_prefix %>_invitation_path, alert: "Too many invitations. Please try again later." })
+
+  def new
+    @invitation = <%= identity.invitation_class %>.new
+<%- if teams? -%>
+    @teams = <%= identity.current_class %>.user.teams
+<%- end -%>
+  end
+
+  def create
+    @invitation = <%= identity.current_class %>.user.sent_invitations.new(invitation_params)
+<%- if teams? -%>
+    @invitation.team = invited_team
+<%- end -%>
+
+    unless @invitation.save
+<%- if teams? -%>
+      @teams = <%= identity.current_class %>.user.teams
+<%- end -%>
+      return render :new, status: :unprocessable_entity
+    end
+
+<%- if coy? -%>
+    <%= deferred_call("@invitation", :offer_unless_redundant) %>
+
+    redirect_to new_<%= identity.settings_helper_prefix %>_invitation_path, notice: "Invitation sent to #{@invitation.sent_to}."
+<%- elsif teams? -%>
+    @invitation.offer
+    if invited_account_exists?
+      redirect_to new_<%= identity.settings_helper_prefix %>_invitation_path, notice: "Invitation sent to #{@invitation.sent_to}."
+    else
+      redirect_to new_<%= identity.settings_helper_prefix %>_invitation_path,
+        notice: "Invitation sent to #{@invitation.sent_to}. They'll join when they confirm their #{@invitation.email_addressed? ? "email" : "phone"}."
+    end
+<%- else -%>
+    @invitation.offer
+    redirect_to new_<%= identity.settings_helper_prefix %>_invitation_path,
+      notice: "Invitation sent to #{@invitation.sent_to}. They'll join when they confirm their #{@invitation.email_addressed? ? "email" : "phone"}."
+<%- end -%>
+  end
+
+  private
+<%- if teams? -%>
+
+  def invited_team
+    <%= identity.current_class %>.user.teams.find(params[:team_id]) if params[:team_id].present?
+  end
+<%- end -%>
+<%- if teams? && !coy? -%>
+
+  def invited_account_exists?
+    <%= identity.class_name %>.exists?(@invitation.sent_to_channel => @invitation.sent_to)
+  end
+<%- end -%>
+
+  def invitation_params
+    params.permit(:sent_to)
+  end
+end

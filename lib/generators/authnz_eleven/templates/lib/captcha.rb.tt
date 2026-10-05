@@ -1,0 +1,15 @@
+module Captcha
+  class << self
+    def verify(token, ip: nil)
+      provider.verify(token, ip:)
+    end
+
+    def site_key
+      provider.site_key
+    end
+
+    def provider
+      Rails.env.test? ? Null : Turnstile
+    end
+  end
+end

@@ -1,0 +1,21 @@
+<p style="color: green"><%%= notice %></p>
+
+<h1>Passkeys</h1>
+
+<p>Passkeys let you sign in without a password, using your device's screen lock,
+a fingerprint, or a security key.</p>
+
+<ul>
+  <%% @passkeys.each do |passkey| %>
+    <li>
+      <%%= passkey.name %>
+      <%%= link_to "Rename", edit_<%= identity.settings_helper_prefix %>_passkey_path(passkey) %>
+      <%%= button_to "Remove", <%= identity.settings_helper_prefix %>_passkey_path(passkey), method: :delete,
+            data: {turbo_confirm: "Remove this passkey?"} %>
+    </li>
+  <%% end %>
+</ul>
+
+<p><%%= link_to "Add a passkey", new_<%= identity.settings_helper_prefix %>_passkey_path %></p>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

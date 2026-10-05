@@ -1,0 +1,68 @@
+<%- optional = principals.email.optional? -%>
+<%- field_label = optional ? %q(email ? "New email" : "Email") : %q("New email") -%>
+<%- submit_label = optional ? %q(email ? "Change email" : "Add an email") : %q("Change email") -%>
+<p style="color: green"><%%= notice %></p>
+<p style="color: red"><%%= alert %></p>
+
+<%- if optional -%>
+<%% email = <%= identity.current_class %>.user.email_in_database.presence %>
+
+<h1><%%= email ? "Change your email" : "Add an email" %></h1>
+
+<%% if email %>
+  <p>
+    Current email: <%%= email %>
+  </p>
+<%% end %>
+<%- else -%>
+<h1>Change your email</h1>
+
+<p>
+  Current email: <%%= <%= identity.current_class %>.user.email_in_database %>
+</p>
+<%- end -%>
+<%- if email_verifiable? -%>
+<%% if <%= identity.current_class %>.user.pending_email_in_database.present? %>
+  <p>Unconfirmed email: <%%= <%= identity.current_class %>.user.pending_email_in_database %></p>
+<%% end %>
+<%- end -%>
+
+<%% if @user.errors.any? %>
+  <ul style="color: red">
+    <%% @user.errors.full_messages.each do |message| %>
+      <li><%%= message %></li>
+    <%% end %>
+  </ul>
+<%% end %>
+
+<%%= form_with url: <%= identity.settings_helper_prefix %>_email_path, method: :patch do |form| %>
+  <div>
+    <%%= form.label :email, <%= field_label %> %><br>
+    <%%= form.email_field :email, value: <%= email_verifiable? ? "#{identity.current_class}.user.pending_email || " : "" %><%= identity.current_class %>.user.email<%= principals.email.required? ? ", required: true" : "" %>, autocomplete: "email" %>
+<%- if optional -%>
+    <%% if email %><small>Leave blank to remove your email.</small><%% end %>
+<%- end -%>
+  </div>
+<%- if sudoable? -%>
+
+  <%%= render "<%= identity.sudo_partial %>", form:, submit: <%= submit_label %> %>
+<%- else -%>
+<%- if password? -%>
+
+  <div>
+    <%%= form.label :password_challenge, "Current password" %><br>
+    <%%= form.password_field :password_challenge, autocomplete: "current-password" %>
+  </div>
+<%- end -%>
+
+  <div><%%= form.submit <%= submit_label %> %></div>
+<%- end -%>
+<%% end %>
+<%- if email_verifiable? -%>
+
+<%% if <%= identity.current_class %>.user.pending_email_in_database.present? %>
+  <%%= button_to "Resend confirmation email", <%= identity.settings_helper_prefix %>_email_verification_path, method: :post %>
+<%% end %>
+<%- end -%>
+
+<p><%%= link_to "Back to settings", <%= identity.settings_helper_prefix %>_path %></p>

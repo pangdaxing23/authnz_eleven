@@ -1,0 +1,12 @@
+class <%= identity.team_class %> < ApplicationRecord
+  has_many :memberships, dependent: :destroy
+  has_many :<%= identity.plural %>, through: :memberships
+<%- if invitable? -%>
+  has_many :invitations, dependent: :destroy
+<%- end -%>
+<%- if session_carries_team? -%>
+  has_many :sessions, dependent: :nullify
+<%- end -%>
+
+  validates :name, presence: true
+end
